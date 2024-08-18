@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"flag"
-	"fmt"
 	"path/filepath"
 	"time"
 
@@ -14,36 +13,36 @@ import (
 )
 
 type Pod struct {
-	Name      string
-	Status    string
-	CreatedAt string
-	UniqueID  string
-	NodeName  string
-	IP        string
+	Name      string `json:"name"`
+	Status    string `json:"status"`
+	CreatedAt string `json:"created_at"`
+	UniqueID  string `json:"unique_id"`
+	NodeName  string `json:"node_name"`
+	IP        string `json:"ip"`
 }
 
 type Deployment struct {
-	Name      string
-	Status    string
-	CreatedAt string
-	UniqueID  string
-	Labels    map[string]string
+	Name      string            `json:"name"`
+	Status    string            `json:"status"`
+	CreatedAt string            `json:"created_at"`
+	UniqueID  string            `json:"unique_id"`
+	Labels    map[string]string `json:"labels"`
 }
 
 type Service struct {
-	Name      string
-	Type      string
-	CreatedAt string
-	UniqueID  string
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	CreatedAt string `json:"created_at"`
+	UniqueID  string `json:"unique_id"`
 }
 
 type Namespace struct {
-	Name        string
-	CreatedAt   string
-	UniqueID    string
-	Pods        []Pod
-	Deployments []Deployment
-	Services    []Service
+	Name        string       `json:"name"`
+	CreatedAt   string       `json:"created_at"`
+	UniqueID    string       `json:"unique_id"`
+	Pods        []Pod        `json:"pods"`
+	Deployments []Deployment `json:"deployments"`
+	Services    []Service    `json:"services"`
 }
 
 var clientset *kubernetes.Clientset
@@ -77,6 +76,8 @@ func StartMonitoring() {
 		if err != nil {
 			panic(err.Error())
 		}
+
+		var namespaceList []Namespace
 		for _, ns := range namespaces.Items {
 			pods := getPods(ns.Name)
 			deployments := getDeployments(ns.Name)
@@ -91,10 +92,9 @@ func StartMonitoring() {
 				Services:    services,
 			}
 
-			// broadcast to all connected clients
-			fmt.Println("Broadcasting namespace:", namespace.Name)
-			server.namespaceChan <- namespace
+			namespaceList = append(namespaceList, namespace)
 		}
+		server.namespaceChan <- namespaceList
 		time.Sleep(15 * time.Second)
 	}
 }

@@ -13,7 +13,7 @@ import (
 type Server struct {
 	conns         map[*websocket.Conn]bool
 	mu            sync.Mutex
-	namespaceChan chan Namespace
+	namespaceChan chan []Namespace
 }
 
 var server *Server
@@ -22,7 +22,7 @@ func NewServer() *Server {
 	return &Server{
 		conns:         make(map[*websocket.Conn]bool),
 		mu:            sync.Mutex{},
-		namespaceChan: make(chan Namespace, 20),
+		namespaceChan: make(chan []Namespace, 25),
 	}
 }
 
@@ -40,18 +40,7 @@ func (s *Server) handleConn(ws *websocket.Conn) {
 		ws.Close()
 	}()
 
-	s.readLoop(ws)
-}
-
-func (s *Server) readLoop(ws *websocket.Conn) {
-	for {
-		var message string
-		err := websocket.Message.Receive(ws, &message)
-		if err != nil {
-			fmt.Println("Error receiving message:", err)
-			break
-		}
-	}
+	server.broadcastNamespaces()
 }
 
 func (s *Server) broadcastNamespaces() {
@@ -59,7 +48,6 @@ func (s *Server) broadcastNamespaces() {
 	fmt.Println("Broadcasting namespaces...")
 	for {
 		for namespace := range s.namespaceChan {
-			fmt.Println("Received namespace:", namespace.Name)
 			s.mu.Lock()
 			for conn := range s.conns {
 				jsonData, err := json.Marshal(namespace)
@@ -68,7 +56,6 @@ func (s *Server) broadcastNamespaces() {
 					continue
 				}
 
-				fmt.Println("Broadcasting namespace:", string(jsonData))
 				err = websocket.Message.Send(conn, string(jsonData))
 				if err != nil {
 					fmt.Println("Error sending message:", err)
@@ -91,6 +78,5 @@ func StartServer() {
 		}
 	}))
 
-	go server.broadcastNamespaces()
 	http.ListenAndServe(":5000", handler)
 }
