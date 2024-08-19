@@ -26,6 +26,8 @@ import DnsIcon from '@mui/icons-material/Dns';
 import StorageIcon from '@mui/icons-material/Storage';
 import SettingsEthernetIcon from '@mui/icons-material/SettingsEthernet';
 import MemoryIcon from '@mui/icons-material/Memory';
+import LockIcon from '@mui/icons-material/Lock';
+import DescriptionIcon from '@mui/icons-material/Description';
 
 interface ClusterGraphProps {
   namespaces: Namespace[];
@@ -88,6 +90,10 @@ const ClusterGraph: React.FC<ClusterGraphProps> = ({ namespaces }) => {
     setSelectedItem(null);
   };
 
+  const formatCreatedAt = (createdAt: string) => {
+    return createdAt.split('T')[0];
+  }
+
   return (
     <ThemeProvider theme={darkTheme}>
       <CssBaseline />
@@ -119,7 +125,7 @@ const ClusterGraph: React.FC<ClusterGraphProps> = ({ namespaces }) => {
                 <CardContent>
                   <GlowingChip
                     icon={<MemoryIcon />}
-                    label={`Created: ${new Date(namespace.created_at).toLocaleDateString()}`}
+                    label={`Created: ${formatCreatedAt(namespace.created_at)}`}
                     size="small"
                   />
                 </CardContent>
@@ -134,7 +140,7 @@ const ClusterGraph: React.FC<ClusterGraphProps> = ({ namespaces }) => {
             </DialogTitle>
             <DialogContent dividers sx={{ background: '#16213e' }}>
               <Typography variant="subtitle1" gutterBottom color="secondary.main">
-                Created: {new Date(selectedItem.created_at).toLocaleString()}
+                Created: {formatCreatedAt(selectedItem.created_at)}
               </Typography>
               {selectedItem.pods && (
                 <Box my={2}>
@@ -198,6 +204,49 @@ const ClusterGraph: React.FC<ClusterGraphProps> = ({ namespaces }) => {
                             secondary={
                               <Typography variant="body2" color="text.secondary">
                                 Type: {service.type}
+                              </Typography>
+                            }
+                          />
+                        </ListItem>
+                        <Divider />
+                      </React.Fragment>
+                    ))}
+                  </List>
+                </Box>
+              )}
+              {selectedItem.config_maps && (
+                <Box my={2}>
+                  <Typography variant="h6" gutterBottom color="primary.main">
+                    ConfigMaps <DescriptionIcon fontSize="small" />
+                  </Typography>
+                  <List>
+                    {selectedItem.config_maps.map((configMap: any) => (
+                      <React.Fragment key={configMap.name}>
+                        <ListItem>
+                          <ListItemText
+                            primary={<Typography color="text.primary">{configMap.name}</Typography>}
+                          />
+                        </ListItem>
+                        <Divider />
+                      </React.Fragment>
+                    ))}
+                  </List>
+                </Box>
+              )}
+              {selectedItem.secrets && (
+                <Box my={2}>
+                  <Typography variant="h6" gutterBottom color="primary.main">
+                    Secrets <LockIcon fontSize="small" />
+                  </Typography>
+                  <List>
+                    {selectedItem.secrets.map((secret: any) => (
+                      <React.Fragment key={secret.unique_id}>
+                        <ListItem>
+                          <ListItemText
+                            primary={<Typography color="text.primary">{secret.name}</Typography>}
+                            secondary={
+                              <Typography variant="body2" color="text.secondary">
+                                Type: {secret.type}
                               </Typography>
                             }
                           />

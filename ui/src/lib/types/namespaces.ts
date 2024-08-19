@@ -22,6 +22,18 @@ interface Service {
     unique_id: string;
 }
 
+interface Secret {
+    name: string;
+    created_at: string;
+    unique_id: string;
+    type: string;
+    secret_map: Record<string, string>;
+}
+
+interface ConfigMap{
+    name: string;
+}
+
 export interface Namespace {
     name: string;
     created_at: string;
@@ -29,4 +41,6 @@ export interface Namespace {
     pods: Pod[] | null;
     deployments: Deployment[] | null;
     services: Service[] | null;
+    secrets: Secret[] | null;
+    config_maps: ConfigMap[] | null;
 }

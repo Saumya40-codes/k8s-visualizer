@@ -36,6 +36,18 @@ type Service struct {
 	UniqueID  string `json:"unique_id"`
 }
 
+type Secret struct {
+	Name      string            `json:"name"`
+	SecretMap map[string]string `json:"secret_map"`
+	Type      string            `json:"type"`
+	CreatedAt string            `json:"created_at"`
+	UniqueID  string            `json:"unique_id"`
+}
+
+type ConfigMap struct {
+	Name string `json:"name"`
+}
+
 type Namespace struct {
 	Name        string       `json:"name"`
 	CreatedAt   string       `json:"created_at"`
@@ -43,6 +55,8 @@ type Namespace struct {
 	Pods        []Pod        `json:"pods"`
 	Deployments []Deployment `json:"deployments"`
 	Services    []Service    `json:"services"`
+	Secrets     []Secret     `json:"secrets"`
+	ConfigMaps  []ConfigMap  `json:"config_maps"`
 }
 
 var clientset *kubernetes.Clientset
@@ -82,6 +96,8 @@ func StartMonitoring() {
 			pods := getPods(ns.Name)
 			deployments := getDeployments(ns.Name)
 			services := getServices(ns.Name)
+			secrets := getSecrets(ns.Name)
+			configMaps := getConfigMap(ns.Name)
 
 			namespace := Namespace{
 				Name:        ns.Name,
@@ -90,6 +106,8 @@ func StartMonitoring() {
 				Pods:        pods,
 				Deployments: deployments,
 				Services:    services,
+				Secrets:     secrets,
+				ConfigMaps:  configMaps,
 			}
 
 			namespaceList = append(namespaceList, namespace)
@@ -141,6 +159,7 @@ func getServices(ns string) []Service {
 	if err != nil {
 		panic(err.Error())
 	}
+
 	var serviceList []Service
 	for _, service := range services.Items {
 		serviceList = append(serviceList, Service{
@@ -151,4 +170,46 @@ func getServices(ns string) []Service {
 		})
 	}
 	return serviceList
+}
+
+func getSecrets(ns string) []Secret {
+	secrets, err := clientset.CoreV1().Secrets(ns).List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		panic(err.Error())
+	}
+
+	var secretList []Secret
+	for _, secret := range secrets.Items {
+		secretList = append(secretList, Secret{
+			Name:      secret.Name,
+			Type:      string(secret.Type),
+			CreatedAt: secret.CreationTimestamp.String(),
+			UniqueID:  string(secret.UID),
+		})
+
+		secretMap := make(map[string]string)
+		for key, value := range secret.Data {
+			secretMap[key] = string(value)
+		}
+		secretList[len(secretList)-1].SecretMap = secretMap
+	}
+
+	return secretList
+}
+
+func getConfigMap(ns string) []ConfigMap {
+	configMaps, err := clientset.CoreV1().ConfigMaps(ns).List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		panic(err.Error())
+	}
+
+	var configMapList []ConfigMap
+
+	for _, configMap := range configMaps.Items {
+		configMapList = append(configMapList, ConfigMap{
+			Name: configMap.Name,
+		})
+	}
+
+	return configMapList
 }
