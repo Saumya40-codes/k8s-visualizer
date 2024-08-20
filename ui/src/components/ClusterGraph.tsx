@@ -16,10 +16,7 @@ import {
   List,
   ListItem,
   ListItemText,
-  Divider,
-  ThemeProvider,
-  createTheme,
-  CssBaseline,
+  Divider
 } from '@mui/material';
 import { styled } from '@mui/system';
 import DnsIcon from '@mui/icons-material/Dns';
@@ -32,22 +29,6 @@ import DescriptionIcon from '@mui/icons-material/Description';
 interface ClusterGraphProps {
   namespaces: Namespace[];
 }
-
-const darkTheme = createTheme({
-  palette: {
-    mode: 'dark',
-    background: {
-      default: '#1a1a2e',
-      paper: '#16213e',
-    },
-    primary: {
-      main: '#4ecca3',
-    },
-    secondary: {
-      main: '#e94560',
-    },
-  },
-});
 
 const StyledCard = styled(Card)(({ theme }) => ({
   height: '100%',
@@ -95,8 +76,6 @@ const ClusterGraph: React.FC<ClusterGraphProps> = ({ namespaces }) => {
   }
 
   return (
-    <ThemeProvider theme={darkTheme}>
-      <CssBaseline />
       <Box sx={{ padding: 3, minHeight: '100vh' }}>
         <Typography variant="h3" align="center" gutterBottom fontWeight="bold" color="primary" sx={{ mb: 4 }}>
           Kubernetes Cluster Overview
@@ -266,7 +245,6 @@ const ClusterGraph: React.FC<ClusterGraphProps> = ({ namespaces }) => {
           </Dialog>
         )}
       </Box>
-    </ThemeProvider>
   );
 };
 

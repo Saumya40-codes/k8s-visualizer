@@ -7,6 +7,6 @@ import (
 )
 
 func main() {
-	fmt.Println("Starting monitoring")
+	fmt.Println("🚀 Starting monitoring your k8s")
 	api.StartMonitoring()
 }

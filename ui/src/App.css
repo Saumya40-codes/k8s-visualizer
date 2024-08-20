@@ -5,3 +5,16 @@
   margin: 0;
   padding: 0;
 }
+
+.loader{
+  display: flex;
+  justify-content: center;
+  padding-top: 60px;
+}
+
+.loader-text{
+  font-weight: bold;
+  font-size: 40px;
+  margin-right: 10px;
+  padding-top: -12px;
+}
