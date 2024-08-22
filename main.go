@@ -24,8 +24,8 @@ func main() {
 
 	err := cmd.Start()
 	if err != nil {
-		fmt.Printf("Error starting Visualizer app: %v\n", err)
 		log.Printf("Error starting Visualizer app: %v\n", err)
+        log.Printf("Ignore above error if you are running docker container or using in-cluster k8s configuration")
 		return
 	}
 
