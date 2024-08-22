@@ -10,6 +10,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
 )
@@ -77,6 +78,15 @@ func init() {
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 	if err != nil {
 		log.Fatalf("Error building kubeconfig: %v", err)
+		log.Println("Now using in-cluster configuration")
+
+		config, err = rest.InClusterConfig()
+		if err != nil {
+			log.Fatalf("Error building in-cluster config: %v", err)
+			log.Println("Failed to create clientset, exiting...")
+			fmt.Println("⚠ Failed to create clientset, exiting...")
+			return
+		}
 	}
 
 	clientset, err = kubernetes.NewForConfig(config)
@@ -95,8 +105,16 @@ func ensureConnection() {
 			config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 			if err != nil {
 				log.Printf("Error building kubeconfig: %v", err)
-				time.Sleep(5 * time.Second)
-				continue
+				log.Println("Now using in-cluster configuration")
+
+				config, err = rest.InClusterConfig()
+				if err != nil {
+					log.Printf("Error building in-cluster config aswell: %v", err)
+					log.Println("Failed to reconnect to Kubernetes API server, retrying in 5 seconds...")
+
+					time.Sleep(5 * time.Second)
+					continue
+				}
 			}
 			newClientset, err := kubernetes.NewForConfig(config)
 			if err != nil {
