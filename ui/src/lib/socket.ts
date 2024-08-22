@@ -3,7 +3,7 @@ class WebSocketClient {
   private listeners: { [key: string]: Function[] } = {};
 
   connect() {
-    this.socket = new WebSocket("ws://localhost:5000/ws");
+    this.socket = new WebSocket("ws://localhost:8080/ws");
 
     this.socket.onopen = () => {
       console.log("WebSocket connection established");

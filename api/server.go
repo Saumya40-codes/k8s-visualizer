@@ -2,7 +2,7 @@ package api
 
 import (
 	"encoding/json"
-	"fmt"
+	"log"
 	"net/http"
 	"sync"
 
@@ -27,7 +27,7 @@ func NewServer() *Server {
 }
 
 func (s *Server) handleConn(ws *websocket.Conn) {
-	fmt.Println("New incoming connection...")
+	log.Println("New connection")
 
 	s.mu.Lock()
 	s.conns[ws] = true
@@ -45,20 +45,20 @@ func (s *Server) handleConn(ws *websocket.Conn) {
 
 func (s *Server) broadcastNamespaces() {
 
-	fmt.Println("Broadcasting namespaces...")
+	log.Println("Broadcasting namespaces to clients started")
 	for {
 		for namespace := range s.namespaceChan {
 			s.mu.Lock()
 			for conn := range s.conns {
 				jsonData, err := json.Marshal(namespace)
 				if err != nil {
-					fmt.Println("Error marshalling JSON:", err)
+					log.Printf("Error marshalling namespace data: %v", err)
 					continue
 				}
 
 				err = websocket.Message.Send(conn, string(jsonData))
 				if err != nil {
-					fmt.Println("Error sending message:", err)
+					log.Printf("Error sending data to client: %v", err)
 					delete(s.conns, conn)
 					conn.Close()
 				}
@@ -78,5 +78,5 @@ func StartServer() {
 		}
 	}))
 
-	http.ListenAndServe(":5000", handler)
+	http.ListenAndServe(":8080", handler)
 }
