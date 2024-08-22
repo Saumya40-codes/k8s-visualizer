@@ -1,4 +1,4 @@
-module github.com/Saumya40-codes/k8s-namespace-visualizer
+module github.com/Saumya40-codes/k8s-visualizer
 
 go 1.22.3
 

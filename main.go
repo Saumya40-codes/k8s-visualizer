@@ -6,7 +6,7 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/Saumya40-codes/k8s-namespace-visualizer/api"
+	"github.com/Saumya40-codes/k8s-visualizer/api"
 )
 
 func init() {
