@@ -1,10 +1,8 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"os"
-	"os/exec"
 
 	"github.com/Saumya40-codes/k8s-visualizer/api"
 )
@@ -15,21 +13,6 @@ func init() {
 }
 
 func main() {
-	fmt.Println("🚀 Starting monitoring your k8s")
-	log.Println("Monitoring started")
-	go api.StartMonitoring()
-
-	cmd := exec.Command("npm", "run", "dev")
-	cmd.Dir = "./ui"
-
-	err := cmd.Start()
-	if err != nil {
-		log.Printf("Error starting Visualizer app: %v\n", err)
-        log.Printf("Ignore above error if you are running docker container or using in-cluster k8s configuration")
-		return
-	}
-
-	log.Println("Visualizer started")
-	fmt.Println("😁 Visualizer started successfully!\nHeadover to http://localhost:5173")
-	select {}
+	log.Println("Starting monitoring your k8s cluster 🚀")
+	api.StartMonitoring()
 }
