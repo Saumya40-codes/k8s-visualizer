@@ -72,11 +72,31 @@ func (s *Server) broadcastNamespaces() {
 func StartServer() {
 	server = NewServer()
 
-	handler := cors.Default().Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/ws" {
-			websocket.Handler(server.handleConn).ServeHTTP(w, r)
-		}
-	}))
+	corsOptions := cors.Options{
+		AllowedOrigins: []string{"http://localhost:5173", "ws://localhost:8080"},
+		AllowedMethods: []string{"GET", "POST", "OPTIONS"},
+		AllowedHeaders: []string{"*"},
+		Debug:          true,
+	}
+	handler := cors.New(corsOptions).Handler(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/ws" {
+				wsHandler := websocket.Server{
+					Handler: func(ws *websocket.Conn) {
+						server.handleConn(ws)
+					},
+					Handshake: func(config *websocket.Config, r *http.Request) error {
+						config.Origin, _ = websocket.Origin(config, r)
+						return nil
+					},
+				}
+				wsHandler.ServeHTTP(w, r)
+			}
+		}),
+	)
 
-	http.ListenAndServe(":8080", handler)
+	log.Println("Starting WebSocket server on :8080")
+	if err := http.ListenAndServe(":8080", handler); err != nil {
+		log.Fatal("ListenAndServe:", err)
+	}
 }
