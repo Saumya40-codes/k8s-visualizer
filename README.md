@@ -9,6 +9,12 @@ This project provides a tool for visualizing Kubernetes clusters using Golang fo
 - Backend powered by Golang
 - Frontend built with React
 
+## Overview
+![image](https://github.com/user-attachments/assets/5ad9956b-bc15-4933-bcd2-558aed333dea)
+
+![image](https://github.com/user-attachments/assets/a0524ed6-9084-4d87-8964-83d775b39a9c)
+
+
 ## Coming Soon
 
 - In-cluster configuration support
@@ -51,7 +57,7 @@ This project provides a tool for visualizing Kubernetes clusters using Golang fo
    go run main.go
    ```
 
-2. In a new terminal, start the frontend development server: (If it hasn't already. By default frontend server should automatically start when you do step. 1)
+2. In a new terminal, start the frontend development server.
    ```
    cd ui
    npm run dev
