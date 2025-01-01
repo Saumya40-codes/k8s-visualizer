@@ -6,6 +6,7 @@ This project provides a tool for visualizing Kubernetes clusters using Golang fo
 
 - Visualize Kubernetes cluster configuration
 - Out-of-cluster configuration support
+- In-cluster configuration
 - Backend powered by Golang
 - Frontend built with React
 
@@ -14,10 +15,6 @@ This project provides a tool for visualizing Kubernetes clusters using Golang fo
 
 ![image](https://github.com/user-attachments/assets/a0524ed6-9084-4d87-8964-83d775b39a9c)
 
-
-## Coming Soon
-
-- In-cluster configuration support
 
 ## Prerequisites
 
@@ -45,7 +42,7 @@ This project provides a tool for visualizing Kubernetes clusters using Golang fo
    npm install
    ```
 
-## Usage
+## Usage (Out-of-cluster configuration)
 
 0. Set the `KUBECONFIG` env variable
    ```
@@ -63,6 +60,35 @@ This project provides a tool for visualizing Kubernetes clusters using Golang fo
    npm run dev
    ```
 
+3. Open your browser and navigate to `http://localhost:5173` (or the appropriate port)
+
+4. Use the interface to visualize your Kubernetes cluster
+
+
+## Usage (In-cluster configuration)
+
+1. Run the following command
+
+```
+https://raw.githubusercontent.com/Saumya40-codes/k8s-visualizer/refs/heads/master/yamls/all-in-one.yaml
+```
+
+   - Wait for respective deployments to get ready, you can check using
+   
+      ```
+      kubectl get pods
+      ```
+      
+
+2. Port forwarding (Or you can expose the service running (see: `kubectl get svc`)    you can see `kubectl get pods` to see pod full tag/name of your pod
+
+   ```
+   kubectl port-forward k8s-visualizer-frontend-yourrespectivetag 5173:5173
+   ```
+   and
+   ```
+   kubectl port-forward k8s-visualizer-backend-yourrespectivetag 8080:8080
+   ```
 3. Open your browser and navigate to `http://localhost:5173` (or the appropriate port)
 
 4. Use the interface to visualize your Kubernetes cluster
