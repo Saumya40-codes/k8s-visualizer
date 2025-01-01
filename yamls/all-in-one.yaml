@@ -8,29 +8,42 @@ metadata:
 ---
 # Role for the Service Account
 apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
+kind: ClusterRole
 metadata:
   name: k8s-visualizer-role
-  namespace: default
 rules:
   - apiGroups: [""]
-    resources: ["pods", "services", "deployments", "replicasets", "configmaps", "secrets", "namespaces"]
+    resources: 
+      - "pods"
+      - "services"
+      - "configmaps"
+      - "secrets"
+      - "namespaces"
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: 
+      - "deployments"
+      - "replicasets"
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["extensions"]
+    resources: 
+      - "deployments"
+      - "replicasets"
     verbs: ["get", "list", "watch"]
 
 ---
 
 # Role Binding for the Service Account
 apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
+kind: ClusterRoleBinding
 metadata:
   name: k8s-visualizer-role-binding
-  namespace: default
 subjects:
   - kind: ServiceAccount
     name: k8s-visualizer-sa
     namespace: default
 roleRef:
-  kind: Role
+  kind: ClusterRole
   name: k8s-visualizer-role
   apiGroup: rbac.authorization.k8s.io
 
@@ -54,6 +67,10 @@ spec:
         app: k8s-visualizer-backend
     spec:
       serviceAccountName: k8s-visualizer-sa
+      initContainers:
+        - name: wait-for-frontend
+          image: busybox
+          command: ['sh', '-c', 'until wget --spider -S http://k8s-visualizer-frontend-service:5173 2>&1 | grep "HTTP/1.1 200"; do echo waiting for frontend; sleep 2; done;']
       containers:
         - name: k8s-visualizer-backend
           image: saumyashah40/k8s-visualize_backend:latest
@@ -73,7 +90,7 @@ spec:
     - protocol: TCP
       port: 8080
       targetPort: 8080
-  type: ClusterIP
+  type: LoadBalancer
 
 ---
 # Frontend Deployment
