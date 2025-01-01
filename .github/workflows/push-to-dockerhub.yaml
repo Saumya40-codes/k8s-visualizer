@@ -1,4 +1,4 @@
-name: Buld server & frontend image and push
+name: Build server & frontend image and push
 
 on:
   push:
