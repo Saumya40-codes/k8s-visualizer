@@ -1,0 +1,115 @@
+# Service Account as we are using k8s API
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: k8s-visualizer-sa
+  namespace: default
+
+---
+# Role for the Service Account
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: k8s-visualizer-role
+  namespace: default
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "deployments", "replicasets", "configmaps", "secrets", "namespaces"]
+    verbs: ["get", "list", "watch"]
+
+---
+
+# Role Binding for the Service Account
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: k8s-visualizer-role-binding
+  namespace: default
+subjects:
+  - kind: ServiceAccount
+    name: k8s-visualizer-sa
+    namespace: default
+roleRef:
+  kind: Role
+  name: k8s-visualizer-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+
+# Backend Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k8s-visualizer-backend
+  labels:
+    app: k8s-visualizer-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: k8s-visualizer-backend
+  template:
+    metadata:
+      labels:
+        app: k8s-visualizer-backend
+    spec:
+      serviceAccountName: k8s-visualizer-sa
+      containers:
+        - name: k8s-visualizer-backend
+          image: saumyashah40/k8s-visualize_backend:latest
+          ports:
+            - containerPort: 8080
+
+---
+# Backend Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: k8s-visualizer-backend-service
+spec:
+  selector:
+    app: k8s-visualizer-backend
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP
+
+---
+# Frontend Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k8s-visualizer-frontend
+  labels:
+    app: k8s-visualizer-frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: k8s-visualizer-frontend
+  template:
+    metadata:
+      labels:
+        app: k8s-visualizer-frontend
+    spec:
+      containers:
+        - name: k8s-visualizer-frontend
+          image: saumyashah40/k8s-visualize:latest
+          ports:
+            - containerPort: 5173
+
+---
+# Frontend Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: k8s-visualizer-frontend-service
+spec:
+  selector:
+    app: k8s-visualizer-frontend
+  ports:
+    - protocol: TCP
+      port: 5173
+      targetPort: 5173
+  type: LoadBalancer

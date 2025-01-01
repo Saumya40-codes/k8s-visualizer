@@ -77,14 +77,14 @@ func init() {
 
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 	if err != nil {
-		log.Fatalf("Error building kubeconfig: %v", err)
+		log.Printf("Error building kubeconfig: %v", err)
 		log.Println("Now using in-cluster configuration")
 
 		config, err = rest.InClusterConfig()
 		if err != nil {
-			log.Fatalf("Error building in-cluster config: %v", err)
 			log.Println("Failed to create clientset, exiting...")
 			fmt.Println("⚠ Failed to create clientset, exiting...")
+			log.Fatalf("Error building in-cluster config: %v", err)
 			return
 		}
 	}
