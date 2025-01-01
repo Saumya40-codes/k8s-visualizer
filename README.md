@@ -41,17 +41,22 @@ This project provides a tool for visualizing Kubernetes clusters using Golang fo
 
 ## Usage
 
+0. Set the `KUBECONFIG` env variable
+   ```
+   EXPORT KUBECONFIG='path/to/your/.kube/config`
+   ```
+   
 1. Start the backend server:
    ```
    go run main.go
    ```
 
-2. In a new terminal, start the frontend development server:
+2. In a new terminal, start the frontend development server: (If it hasn't already. By default frontend server should automatically start when you do step. 1)
    ```
    cd ui
    npm run dev
    ```
 
-3. Open your browser and navigate to `http://localhost:3000` (or the appropriate port)
+3. Open your browser and navigate to `http://localhost:5173` (or the appropriate port)
 
 4. Use the interface to visualize your Kubernetes cluster
