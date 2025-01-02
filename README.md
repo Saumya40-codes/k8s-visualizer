@@ -70,7 +70,7 @@ This project provides a tool for visualizing Kubernetes clusters using Golang fo
 1. Run the following command
 
 ```
-https://raw.githubusercontent.com/Saumya40-codes/k8s-visualizer/refs/heads/master/yamls/all-in-one.yaml
+kubectl create -f https://raw.githubusercontent.com/Saumya40-codes/k8s-visualizer/refs/heads/master/yamls/all-in-one.yaml
 ```
 
    - Wait for respective deployments to get ready, you can check using
