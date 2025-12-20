@@ -1,11 +1,13 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
 	"sync"
 
+	"github.com/Saumya40-codes/k8s-visualizer/ui"
 	"github.com/rs/cors"
 	"golang.org/x/net/websocket"
 )
@@ -69,34 +71,61 @@ func (s *Server) broadcastNamespaces() {
 	}
 }
 
-func StartServer() {
-	server = NewServer()
-
-	corsOptions := cors.Options{
-		AllowedOrigins: []string{"http://localhost:5173", "ws://localhost:8080"},
+func StartServer(ctx context.Context) {
+	handler := cors.New(cors.Options{
+		AllowedOrigins: []string{"http://localhost:5173", "http://localhost:8081"},
 		AllowedMethods: []string{"GET", "POST", "OPTIONS"},
-		AllowedHeaders: []string{"*"},
 		Debug:          true,
-	}
-	handler := cors.New(corsOptions).Handler(
-		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/ws" {
-				wsHandler := websocket.Server{
-					Handler: func(ws *websocket.Conn) {
-						server.handleConn(ws)
-					},
-					Handshake: func(config *websocket.Config, r *http.Request) error {
-						config.Origin, _ = websocket.Origin(config, r)
-						return nil
-					},
-				}
-				wsHandler.ServeHTTP(w, r)
+	}).Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/ws" {
+			wsHandler := websocket.Server{
+				Handler: func(ws *websocket.Conn) {
+					server.handleConn(ws)
+				},
 			}
-		}),
-	)
+			wsHandler.ServeHTTP(w, r)
+		}
+	}))
+
+	srv := &http.Server{
+		Addr:    ":8080",
+		Handler: handler,
+	}
+
+	go func() {
+		<-ctx.Done()
+		log.Println("Shutting down WebSocket HTTP server")
+		_ = srv.Shutdown(context.Background())
+	}()
 
 	log.Println("Starting WebSocket server on :8080")
-	if err := http.ListenAndServe(":8080", handler); err != nil {
-		log.Fatal("ListenAndServe:", err)
+
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Printf("WebSocket server error: %v", err)
+	}
+
+	log.Println("WebSocket HTTP server exited")
+}
+
+func StartUIServer(ctx context.Context, webListenAddr string) {
+	mux := http.NewServeMux()
+	mux.Handle("/", ui.Handler())
+
+	srv := &http.Server{
+		Addr:    webListenAddr,
+		Handler: mux,
+	}
+
+	go func() {
+		<-ctx.Done()
+		if err := srv.Shutdown(context.Background()); err != nil {
+			log.Printf("UI Server Shutdown Failed:%+v", err)
+		}
+		log.Println("UI Server Exited Properly")
+	}()
+
+	log.Printf("Starting UI server on %s", webListenAddr)
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Fatalf("UI Server ListenAndServe:%+v", err)
 	}
 }

@@ -1,2 +1,4 @@
-/ui
+/ui/*
+!/ui/dist
+!/ui/static.go
 /yamls

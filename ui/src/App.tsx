@@ -30,12 +30,15 @@ function App() {
   useEffect(() => {
     socket.connect();
 
-    socket.on('message', (receivedNamespaces: Namespace[]) => {
+    const handleNamespaces = (receivedNamespaces: Namespace[]) => {
       setNamespaces(receivedNamespaces);
       setLoading(false);
-    });
+    };
+
+    socket.on('message', handleNamespaces);
 
     return () => {
+      socket.off('message', handleNamespaces);
       socket.disconnect();
     };
   }, []);
