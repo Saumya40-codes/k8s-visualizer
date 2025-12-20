@@ -81,14 +81,15 @@ kubectl create -f https://raw.githubusercontent.com/Saumya40-codes/k8s-visualize
       
 
 2. Port forwarding (Or you can expose the service running (see: `kubectl get svc`)    you can see `kubectl get pods` to see pod full tag/name of your pod
+ 
+   ```bash
+   kubectl port-forward svc/k8s-visualizer-backend-yourrespectivetag 8081:8081
+   ```
+   and 
+   ```bash
+   kubectl port-forward svc/k8s-visualizer-backend-yourrespectivetag 8080:8080
+   ```
 
-   ```
-   kubectl port-forward k8s-visualizer-frontend-yourrespectivetag 5173:5173
-   ```
-   and
-   ```
-   kubectl port-forward k8s-visualizer-backend-yourrespectivetag 8080:8080
-   ```
-3. Open your browser and navigate to `http://localhost:5173` (or the appropriate port)
+4. Open your browser and navigate to `http://localhost:8081` (or the appropriate port)
 
-4. Use the interface to visualize your Kubernetes cluster
+5. Use the interface to visualize your Kubernetes cluster
