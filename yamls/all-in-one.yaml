@@ -49,7 +49,7 @@ roleRef:
 
 ---
 
-# Backend Deployment
+# Backend Deployment (now serves WS on 8080 and UI on 5173)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -67,18 +67,17 @@ spec:
         app: k8s-visualizer-backend
     spec:
       serviceAccountName: k8s-visualizer-sa
-      initContainers:
-        - name: wait-for-frontend
-          image: busybox
-          command: ['sh', '-c', 'until wget --spider -S http://k8s-visualizer-frontend-service:5173 2>&1 | grep "HTTP/1.1 200"; do echo waiting for frontend; sleep 2; done;']
       containers:
         - name: k8s-visualizer-backend
           image: saumyashah40/k8s-visualize_backend:latest
+          imagePullPolicy: Always
           ports:
-            - containerPort: 8080
-
+            - name: backend
+              containerPort: 8080
+            - name: ui
+              containerPort: 8081
 ---
-# Backend Service
+
 apiVersion: v1
 kind: Service
 metadata:
@@ -87,46 +86,12 @@ spec:
   selector:
     app: k8s-visualizer-backend
   ports:
-    - protocol: TCP
+    - name: backend
+      protocol: TCP
       port: 8080
       targetPort: 8080
-  type: LoadBalancer
-
----
-# Frontend Deployment
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: k8s-visualizer-frontend
-  labels:
-    app: k8s-visualizer-frontend
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: k8s-visualizer-frontend
-  template:
-    metadata:
-      labels:
-        app: k8s-visualizer-frontend
-    spec:
-      containers:
-        - name: k8s-visualizer-frontend
-          image: saumyashah40/k8s-visualize:latest
-          ports:
-            - containerPort: 5173
-
----
-# Frontend Service
-apiVersion: v1
-kind: Service
-metadata:
-  name: k8s-visualizer-frontend-service
-spec:
-  selector:
-    app: k8s-visualizer-frontend
-  ports:
-    - protocol: TCP
-      port: 5173
-      targetPort: 5173
+    - name: ui
+      protocol: TCP
+      port: 8081
+      targetPort: 8081
   type: LoadBalancer

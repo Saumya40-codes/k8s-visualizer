@@ -5,7 +5,11 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
 	"path/filepath"
+	"sync"
+	"syscall"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -131,27 +135,54 @@ func ensureConnection() {
 
 func StartMonitoring() {
 	server = NewServer()
-	go StartServer()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+
+	go func() {
+		<-sigCh
+		log.Println("signal received, shutting down monitoring")
+		cancel()
+	}()
+
+	wg := sync.WaitGroup{}
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		StartServer(ctx)
+	}()
+
+	go func() {
+		defer wg.Done()
+		StartUIServer(ctx, ":8081")
+	}()
+
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
 
 	for {
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					log.Printf("Recovered from panic in StartMonitoring: %v", r)
-					time.Sleep(5 * time.Second)
-				}
-			}()
-
+		select {
+		case <-ctx.Done():
+			log.Println("StartMonitoring: context canceled")
+			wg.Wait()
+			return
+		case <-ticker.C:
 			namespaceList, err := getNamespaces()
 			if err != nil {
 				log.Printf("Error getting namespaces: %v", err)
-				time.Sleep(5 * time.Second)
-				return
+			} else {
+				select {
+				case <-ctx.Done():
+					continue
+				case server.namespaceChan <- namespaceList:
+				}
 			}
-
-			server.namespaceChan <- namespaceList
-			time.Sleep(30 * time.Second)
-		}()
+		}
 	}
 }
 
