@@ -1,24 +1,28 @@
 # Kubernetes Cluster Visualizer
 
-This project provides a tool for visualizing Kubernetes clusters using Golang for the backend and React for the frontend. It allows users to easily view and understand their Kubernetes cluster configuration.
+A real-time topology graph for Kubernetes clusters. Shows resources, their relationships (ownership, routing, scheduling), and health status as an interactive node-edge graph. Built with Go (backend) and React + React Flow (frontend).
+
+## Overview
+![main-dashboard](./docs/images/main-dashboard.png)
+
+![err-image-pull](./docs/images/failing-pod.png)
+
 
 ## Features
 
-- Visualize Kubernetes cluster configuration
-- Out-of-cluster configuration support
-- In-cluster configuration
-- Backend powered by Golang
-- Frontend built with React
-
-## Overview
-![image](https://github.com/user-attachments/assets/5ad9956b-bc15-4933-bcd2-558aed333dea)
-
-![image](https://github.com/user-attachments/assets/a0524ed6-9084-4d87-8964-83d775b39a9c)
-
+- **Interactive topology graph** with nodes for Pods, Deployments, ReplicaSets, Services, Ingresses, StatefulSets, DaemonSets, Jobs, Secrets, ConfigMaps, and Nodes
+- **Real-time updates** via Kubernetes informers (watch-based, not polling) over WebSocket
+- **Relationship edges**: Deployment -> ReplicaSet -> Pod ownership, Service -> Pod label selector matching, Ingress -> Service routing
+- **Namespace filtering** and **resource type toggles** with cascading visibility (hiding Deployments also hides their ReplicaSets and Pods)
+- **Search** across all resource names
+- **Resource detail panel** (resizable) showing labels, conditions, container statuses, events, and more
+- **Cluster events** per namespace for debugging
+- **Auto-reconnecting WebSocket** with exponential backoff
+- Out-of-cluster and in-cluster configuration support
 
 ## Prerequisites
 
-- Go (version 1.22.3 or higher)
+- Go (version 1.26 or higher)
 - Node.js (version >= v20.10.0 or higher)
 - npm (version >= 10.8 or higher)
 - Access to a Kubernetes cluster
@@ -93,3 +97,26 @@ kubectl create -f https://raw.githubusercontent.com/Saumya40-codes/k8s-visualize
 4. Open your browser and navigate to `http://localhost:8081` (or the appropriate port)
 
 5. Use the interface to visualize your Kubernetes cluster
+
+## Architecture
+
+```
+┌─────────────┐     WebSocket      ┌──────────────────────────────┐
+│  React UI   │ <----------------> │  Go Backend (:8080 WS)       │
+│  (:8081)    │                    │                              │
+│  React Flow │                    │  SharedInformerFactory        │
+│  topology   │                    │  ├── Watch Pods, Deployments │
+│  graph      │                    │  ├── Watch Services, Ingress │
+│             │                    │  ├── Watch Nodes, Events ... │
+│             │                    │  └── Cache (in-memory)       │
+└─────────────┘                    └──────────────────────────────┘
+                                              │
+                                              │ List + Watch
+                                              v
+                                   ┌──────────────────────┐
+                                   │  Kubernetes API      │
+                                   │  Server               │
+                                   └──────────────────────┘
+```
+
+The backend uses Kubernetes informers instead of polling. On startup it does a full List to populate an in-memory cache, then switches to Watch for incremental updates. Any change triggers a debounced state rebuild that gets pushed to all connected WebSocket clients.
