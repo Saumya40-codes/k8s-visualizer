@@ -1,3 +1,16 @@
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+}
+
 .app-container {
   height: 100vh;
   width: 100vw;
@@ -5,17 +18,111 @@
   flex-direction: column;
   overflow: hidden;
   background: #1a1a2e;
+  color: #e0e0e0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
+/* Toolbar */
 .toolbar {
   display: flex;
   align-items: center;
   padding: 8px 16px;
+  gap: 8px;
   background: linear-gradient(180deg, #16213e 0%, #1a1a2e 100%);
   border-bottom: 1px solid #2a3a5a;
   flex-shrink: 0;
 }
+.toolbar__title {
+  color: #4ecca3;
+  font-weight: 700;
+  font-size: 1.1rem;
+  white-space: nowrap;
+  margin-right: 8px;
+}
+.toolbar__status {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 8px;
+}
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.status-dot--ok { background: #4ecca3; }
+.status-dot--err { background: #e94560; }
+.toolbar__status-text {
+  color: #8e8e93;
+  font-size: 0.75rem;
+}
+.toolbar__search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-right: 8px;
+}
+.toolbar__search-icon {
+  position: absolute;
+  left: 8px;
+  color: #8e8e93;
+  pointer-events: none;
+}
+.toolbar__search-input {
+  background: #1e2a4a;
+  border: 1px solid #2a3a5a;
+  border-radius: 6px;
+  color: #e0e0e0;
+  font-size: 0.8rem;
+  padding: 5px 8px 5px 28px;
+  width: 180px;
+  outline: none;
+}
+.toolbar__search-input:focus {
+  border-color: #4ecca3;
+}
+.toolbar__search-input::placeholder {
+  color: #6e6e73;
+}
+.toolbar__divider {
+  width: 1px;
+  align-self: stretch;
+  background: #2a3a5a;
+  margin: 0 4px;
+}
+.toolbar__namespaces {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  flex: 1;
+}
 
+/* Namespace chips */
+.chip {
+  font-size: 0.7rem;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 12px;
+  border: 1px solid;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s;
+}
+.chip--active {
+  background: rgba(78, 204, 163, 0.2);
+  color: #4ecca3;
+  border-color: rgba(78, 204, 163, 0.4);
+}
+.chip--inactive {
+  background: rgba(142, 142, 147, 0.1);
+  color: #6e6e73;
+  border-color: rgba(142, 142, 147, 0.2);
+}
+.chip:hover {
+  background: rgba(78, 204, 163, 0.3);
+}
+
+/* Filter bar */
 .filter-bar {
   display: flex;
   align-items: center;
@@ -25,6 +132,33 @@
   border-bottom: 1px solid #2a3a5a;
   flex-shrink: 0;
 }
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.65rem;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 11px;
+  border: 1px solid;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s;
+}
+.filter-chip--on {
+  background: rgba(78, 204, 163, 0.15);
+  color: #4ecca3;
+  border-color: rgba(78, 204, 163, 0.3);
+}
+.filter-chip--off {
+  background: rgba(233, 69, 96, 0.1);
+  color: #6e6e73;
+  border-color: rgba(233, 69, 96, 0.2);
+  text-decoration: line-through;
+}
+.filter-chip:hover {
+  background: rgba(78, 204, 163, 0.25);
+}
 
 .graph-area {
   flex: 1;
@@ -32,6 +166,7 @@
   overflow: hidden;
 }
 
+/* Loader */
 .loader {
   display: flex;
   align-items: center;
@@ -39,9 +174,61 @@
   height: 100vh;
   gap: 16px;
 }
-
 .loader-text {
   font-weight: 600;
   font-size: 1.2rem;
   color: #8e8e93;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.loader-spin {
+  animation: spin 1.5s linear infinite;
+}
+
+/* Resource node (used by CustomNodes) */
+.resource-node {
+  background: linear-gradient(135deg, #1e2a4a 0%, #16213e 100%);
+  border: 1px solid;
+  border-radius: 8px;
+  padding: 8px 12px;
+  min-width: 140px;
+  max-width: 180px;
+  font-size: 0.75rem;
+}
+.resource-node__header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.resource-node__type {
+  color: #8e8e93;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.resource-node__label {
+  color: #e0e0e0;
+  font-weight: 600;
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-bottom: 4px;
+}
+.resource-node__badge {
+  display: inline-block;
+  font-size: 0.6rem;
+  padding: 1px 6px;
+  border-radius: 8px;
+  border: 1px solid;
+  margin-bottom: 2px;
+}
+.resource-node__subtitle {
+  display: block;
+  color: #6e6e73;
+  font-size: 0.6rem;
+  margin-top: 2px;
 }
