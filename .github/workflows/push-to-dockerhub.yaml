@@ -3,6 +3,7 @@ name: Build server & frontend image and push
 on:
   push:
     branches: 
+      - main
       - master
     paths-ignore:
       - 'README.md'
