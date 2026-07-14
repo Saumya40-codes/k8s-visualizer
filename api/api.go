@@ -11,6 +11,7 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/Saumya40-codes/k8s-visualizer/api/metrics"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -19,6 +20,7 @@ import (
 
 var (
 	clientset  *kubernetes.Clientset
+	restConfig *rest.Config
 	kubeconfig string
 )
 
@@ -43,6 +45,7 @@ func init() {
 		}
 	}
 
+	restConfig = config
 	clientset, err = kubernetes.NewForConfig(config)
 	if err != nil {
 		log.Fatalf("Error creating clientset: %v", err)
@@ -68,13 +71,31 @@ func StartMonitoring() {
 	informerMgr := NewInformerManager(clientset, server.stateChan)
 	server.informerMgr = informerMgr
 
+	metricsCfg := metrics.LoadConfig()
+	metricsMgr, err := metrics.NewManager(metricsCfg, restConfig)
+	if err != nil {
+		log.Printf("metrics manager init failed (continuing without usage): %v", err)
+	} else {
+		informerMgr.SetUsageSource(metricsMgr)
+		metricsMgr.OnUpdate = func() { informerMgr.PushState() }
+		st := metricsMgr.Status()
+		log.Printf("metrics provider=%s available=%v msg=%s", st.Provider, st.Available, st.Message)
+	}
+
 	wg := sync.WaitGroup{}
-	wg.Add(3)
+	wg.Add(4)
 
 	go func() {
 		defer wg.Done()
 		informerMgr.Start(ctx)
 		<-ctx.Done()
+	}()
+
+	go func() {
+		defer wg.Done()
+		if metricsMgr != nil {
+			metricsMgr.Start(ctx)
+		}
 	}()
 
 	go func() {

@@ -8,7 +8,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Saumya40-codes/k8s-visualizer/api/metrics"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
@@ -18,6 +20,12 @@ import (
 	networkinglisters "k8s.io/client-go/listers/networking/v1"
 	"k8s.io/client-go/tools/cache"
 )
+
+type UsageSource interface {
+	PodUsage(namespace, name string) (metrics.ResourceUsage, bool)
+	NodeUsage(name string) (metrics.ResourceUsage, bool)
+	Status() metrics.Status
+}
 
 type InformerManager struct {
 	factory informers.SharedInformerFactory
@@ -43,6 +51,16 @@ type InformerManager struct {
 
 	debounceTimer *time.Timer
 	debounceMu    sync.Mutex
+
+	usage UsageSource
+}
+
+func (im *InformerManager) SetUsageSource(u UsageSource) {
+	im.usage = u
+}
+
+func (im *InformerManager) PushState() {
+	im.buildAndPushState()
 }
 
 func NewInformerManager(client kubernetes.Interface, stateChan chan ClusterState) *InformerManager {
@@ -104,7 +122,6 @@ func (im *InformerManager) GetCachedState() *ClusterState {
 	return im.lastState
 }
 
-// Debounce rapid events into a single state rebuild (500ms window)
 func (im *InformerManager) debounceBuildState() {
 	im.debounceMu.Lock()
 	defer im.debounceMu.Unlock()
@@ -127,7 +144,6 @@ func (im *InformerManager) buildAndPushState() {
 	select {
 	case im.stateChan <- state:
 	default:
-		// drop if channel full, next event will catch up
 	}
 }
 
@@ -158,10 +174,20 @@ func (im *InformerManager) buildClusterState() ClusterState {
 		})
 	}
 
-	return ClusterState{
+	state := ClusterState{
 		Namespaces: nsList,
 		Nodes:      im.buildNodes(),
 	}
+	if im.usage != nil {
+		st := im.usage.Status()
+		state.Metrics = &MetricsStatus{
+			Provider:  st.Provider,
+			Available: st.Available,
+			Message:   st.Message,
+			ScrapedAt: st.ScrapedAt,
+		}
+	}
+	return state
 }
 
 func (im *InformerManager) buildPods(ns string) []Pod {
@@ -220,9 +246,60 @@ func (im *InformerManager) buildPods(ns string) []Pod {
 		}
 
 		pod.EffectiveStatus = deriveEffectiveStatus(p)
+		pod.Requests, pod.Limits = podResourceTotals(p)
+
+		if im.usage != nil {
+			if u, ok := im.usage.PodUsage(ns, p.Name); ok {
+				usage := ResourceUsage(u)
+				pod.Usage = &usage
+			}
+		}
+
 		result = append(result, pod)
 	}
 	return result
+}
+
+func podResourceTotals(p *corev1.Pod) (requests *ResourceList, limits *ResourceList) {
+	var reqCPU, reqMem, limCPU, limMem resource.Quantity
+	var hasReqCPU, hasReqMem, hasLimCPU, hasLimMem bool
+	for _, c := range p.Spec.Containers {
+		if q, ok := c.Resources.Requests[corev1.ResourceCPU]; ok {
+			reqCPU.Add(q)
+			hasReqCPU = true
+		}
+		if q, ok := c.Resources.Requests[corev1.ResourceMemory]; ok {
+			reqMem.Add(q)
+			hasReqMem = true
+		}
+		if q, ok := c.Resources.Limits[corev1.ResourceCPU]; ok {
+			limCPU.Add(q)
+			hasLimCPU = true
+		}
+		if q, ok := c.Resources.Limits[corev1.ResourceMemory]; ok {
+			limMem.Add(q)
+			hasLimMem = true
+		}
+	}
+	if hasReqCPU || hasReqMem {
+		requests = &ResourceList{}
+		if hasReqCPU {
+			requests.CPU = metrics.FormatCPUQuantity(&reqCPU)
+		}
+		if hasReqMem {
+			requests.Memory = metrics.FormatMemoryQuantity(&reqMem)
+		}
+	}
+	if hasLimCPU || hasLimMem {
+		limits = &ResourceList{}
+		if hasLimCPU {
+			limits.CPU = metrics.FormatCPUQuantity(&limCPU)
+		}
+		if hasLimMem {
+			limits.Memory = metrics.FormatMemoryQuantity(&limMem)
+		}
+	}
+	return requests, limits
 }
 
 func deriveEffectiveStatus(p *corev1.Pod) string {
@@ -230,7 +307,6 @@ func deriveEffectiveStatus(p *corev1.Pod) string {
 		return "Terminating"
 	}
 
-	// Check init container failures first
 	for _, cs := range p.Status.InitContainerStatuses {
 		if cs.State.Waiting != nil && cs.State.Waiting.Reason != "" {
 			return cs.State.Waiting.Reason
@@ -538,6 +614,18 @@ func (im *InformerManager) buildNodes() []Node {
 		return nil
 	}
 
+	podCountByNode := map[string]int{}
+	allPods, err := im.podLister.List(labels.Everything())
+	if err != nil {
+		log.Printf("Error listing pods for node counts: %v", err)
+	} else {
+		for _, p := range allPods {
+			if p.Spec.NodeName != "" {
+				podCountByNode[p.Spec.NodeName]++
+			}
+		}
+	}
+
 	var result []Node
 	for _, n := range nodes {
 		status := "NotReady"
@@ -556,21 +644,39 @@ func (im *InformerManager) buildNodes() []Node {
 			}
 		}
 
-		result = append(result, Node{
+		podCap := n.Status.Allocatable.Pods().String()
+		if podCap == "" || podCap == "0" {
+			podCap = n.Status.Capacity.Pods().String()
+		}
+
+		node := Node{
 			Name:     n.Name,
 			Status:   status,
 			UniqueID: string(n.UID),
 			Labels:   n.Labels,
 			Capacity: ResourceList{
-				CPU:    n.Status.Capacity.Cpu().String(),
-				Memory: n.Status.Capacity.Memory().String(),
+				CPU:    metrics.FormatCPUQuantity(n.Status.Capacity.Cpu()),
+				Memory: metrics.FormatMemoryQuantity(n.Status.Capacity.Memory()),
 				Pods:   n.Status.Capacity.Pods().String(),
 			},
-			InternalIP: internalIP,
-			OSImage:    n.Status.NodeInfo.OSImage,
-			Kubelet:    n.Status.NodeInfo.KubeletVersion,
-		})
+			Allocatable: &ResourceList{
+				CPU:    metrics.FormatCPUQuantity(n.Status.Allocatable.Cpu()),
+				Memory: metrics.FormatMemoryQuantity(n.Status.Allocatable.Memory()),
+				Pods:   podCap,
+			},
+			InternalIP:  internalIP,
+			OSImage:     n.Status.NodeInfo.OSImage,
+			Kubelet:     n.Status.NodeInfo.KubeletVersion,
+			PodCount:    podCountByNode[n.Name],
+			PodCapacity: podCap,
+		}
+		if im.usage != nil {
+			if u, ok := im.usage.NodeUsage(n.Name); ok {
+				usage := ResourceUsage(u)
+				node.Usage = &usage
+			}
+		}
+		result = append(result, node)
 	}
 	return result
 }
-

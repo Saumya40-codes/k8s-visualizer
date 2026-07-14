@@ -22,29 +22,49 @@ type OwnerRef struct {
 	UID  string `json:"uid"`
 }
 
+// ResourceUsage is live CPU/memory from a metrics provider.
+// CPU is cores (2dp); Memory is GB (2dp). Millicores/bytes are internal only.
+type ResourceUsage struct {
+	CPU           string `json:"cpu,omitempty"`
+	Memory        string `json:"memory,omitempty"`
+	CPUMillicores *int64 `json:"-"`
+	MemoryBytes   *int64 `json:"-"`
+	Timestamp     string `json:"updated_at,omitempty"`
+}
+
+type MetricsStatus struct {
+	Provider  string `json:"provider"`
+	Available bool   `json:"available"`
+	Message   string `json:"message,omitempty"`
+	ScrapedAt string `json:"scraped_at,omitempty"`
+}
+
 type Pod struct {
-	Name              string             `json:"name"`
-	Status            string             `json:"status"`
-	EffectiveStatus   string             `json:"effective_status"`
-	CreatedAt         string             `json:"created_at"`
-	UniqueID          string             `json:"unique_id"`
-	NodeName          string             `json:"node_name"`
-	IP                string             `json:"ip"`
-	Labels            map[string]string  `json:"labels,omitempty"`
-	ContainerStatuses []ContainerStatus  `json:"container_statuses,omitempty"`
-	Conditions        []PodCondition     `json:"conditions,omitempty"`
-	OwnerReferences   []OwnerRef         `json:"owner_references,omitempty"`
+	Name              string            `json:"name"`
+	Status            string            `json:"status"`
+	EffectiveStatus   string            `json:"effective_status"`
+	CreatedAt         string            `json:"created_at"`
+	UniqueID          string            `json:"unique_id"`
+	NodeName          string            `json:"node_name"`
+	IP                string            `json:"ip"`
+	Labels            map[string]string `json:"labels,omitempty"`
+	ContainerStatuses []ContainerStatus `json:"container_statuses,omitempty"`
+	Conditions        []PodCondition    `json:"conditions,omitempty"`
+	OwnerReferences   []OwnerRef        `json:"owner_references,omitempty"`
+	Requests          *ResourceList     `json:"requests,omitempty"`
+	Limits            *ResourceList     `json:"limits,omitempty"`
+	Usage             *ResourceUsage    `json:"usage,omitempty"`
 }
 
 type Deployment struct {
-	Name              string            `json:"name"`
-	Status            string            `json:"status"`
-	Replicas          int32             `json:"replicas"`
-	ReadyReplicas     int32             `json:"ready_replicas"`
-	CreatedAt         string            `json:"created_at"`
-	UniqueID          string            `json:"unique_id"`
-	Labels            map[string]string `json:"labels,omitempty"`
-	Selector          map[string]string `json:"selector,omitempty"`
+	Name          string            `json:"name"`
+	Status        string            `json:"status"`
+	Replicas      int32             `json:"replicas"`
+	ReadyReplicas int32             `json:"ready_replicas"`
+	CreatedAt     string            `json:"created_at"`
+	UniqueID      string            `json:"unique_id"`
+	Labels        map[string]string `json:"labels,omitempty"`
+	Selector      map[string]string `json:"selector,omitempty"`
 }
 
 type ReplicaSet struct {
@@ -96,8 +116,8 @@ type Ingress struct {
 }
 
 type IngressRule struct {
-	Host  string             `json:"host,omitempty"`
-	Paths []IngressRulePath  `json:"paths,omitempty"`
+	Host  string            `json:"host,omitempty"`
+	Paths []IngressRulePath `json:"paths,omitempty"`
 }
 
 type IngressRulePath struct {
@@ -117,24 +137,24 @@ type StatefulSet struct {
 }
 
 type DaemonSet struct {
-	Name             string            `json:"name"`
-	DesiredNumber    int32             `json:"desired_number"`
-	CurrentNumber    int32             `json:"current_number"`
-	ReadyNumber      int32             `json:"ready_number"`
-	CreatedAt        string            `json:"created_at"`
-	UniqueID         string            `json:"unique_id"`
-	Labels           map[string]string `json:"labels,omitempty"`
-	Selector         map[string]string `json:"selector,omitempty"`
+	Name          string            `json:"name"`
+	DesiredNumber int32             `json:"desired_number"`
+	CurrentNumber int32             `json:"current_number"`
+	ReadyNumber   int32             `json:"ready_number"`
+	CreatedAt     string            `json:"created_at"`
+	UniqueID      string            `json:"unique_id"`
+	Labels        map[string]string `json:"labels,omitempty"`
+	Selector      map[string]string `json:"selector,omitempty"`
 }
 
 type Job struct {
-	Name       string `json:"name"`
-	Status     string `json:"status"`
-	CreatedAt  string `json:"created_at"`
-	UniqueID   string `json:"unique_id"`
+	Name        string `json:"name"`
+	Status      string `json:"status"`
+	CreatedAt   string `json:"created_at"`
+	UniqueID    string `json:"unique_id"`
 	Completions *int32 `json:"completions,omitempty"`
-	Succeeded  int32  `json:"succeeded"`
-	Failed     int32  `json:"failed"`
+	Succeeded   int32  `json:"succeeded"`
+	Failed      int32  `json:"failed"`
 }
 
 type Event struct {
@@ -148,14 +168,18 @@ type Event struct {
 }
 
 type Node struct {
-	Name       string            `json:"name"`
-	Status     string            `json:"status"`
-	UniqueID   string            `json:"unique_id"`
-	Labels     map[string]string `json:"labels,omitempty"`
-	Capacity   ResourceList      `json:"capacity"`
-	InternalIP string            `json:"internal_ip"`
-	OSImage    string            `json:"os_image"`
-	Kubelet    string            `json:"kubelet_version"`
+	Name        string            `json:"name"`
+	Status      string            `json:"status"`
+	UniqueID    string            `json:"unique_id"`
+	Labels      map[string]string `json:"labels,omitempty"`
+	Capacity    ResourceList      `json:"capacity"`
+	Allocatable *ResourceList     `json:"allocatable,omitempty"`
+	InternalIP  string            `json:"internal_ip"`
+	OSImage     string            `json:"os_image"`
+	Kubelet     string            `json:"kubelet_version"`
+	Usage       *ResourceUsage    `json:"usage,omitempty"`
+	PodCount    int               `json:"pod_count"`
+	PodCapacity string            `json:"pod_capacity,omitempty"`
 }
 
 type ResourceList struct {
@@ -182,6 +206,7 @@ type Namespace struct {
 }
 
 type ClusterState struct {
-	Namespaces []Namespace `json:"namespaces"`
-	Nodes      []Node      `json:"nodes"`
+	Namespaces []Namespace    `json:"namespaces"`
+	Nodes      []Node         `json:"nodes"`
+	Metrics    *MetricsStatus `json:"metrics,omitempty"`
 }

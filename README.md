@@ -1,122 +1,89 @@
 # Kubernetes Cluster Visualizer
 
-A real-time topology graph for Kubernetes clusters. Shows resources, their relationships (ownership, routing, scheduling), and health status as an interactive node-edge graph. Built with Go (backend) and React + React Flow (frontend).
+Real-time topology graph for a Kubernetes cluster: resources, ownership/routing edges, health, and optional CPU/memory usage.
 
-## Overview
 ![main-dashboard](./docs/images/main-dashboard.png)
 
 ![err-image-pull](./docs/images/failing-pod.png)
 
+![err-image-pull-details](./docs/images/pod-detail-view.png)
 
 ## Features
 
-- **Interactive topology graph** with nodes for Pods, Deployments, ReplicaSets, Services, Ingresses, StatefulSets, DaemonSets, Jobs, Secrets, ConfigMaps, and Nodes
-- **Real-time updates** via Kubernetes informers (watch-based, not polling) over WebSocket
-- **Relationship edges**: Deployment -> ReplicaSet -> Pod ownership, Service -> Pod label selector matching, Ingress -> Service routing
-- **Namespace filtering** and **resource type toggles** with cascading visibility (hiding Deployments also hides their ReplicaSets and Pods)
-- **Search** across all resource names
-- **Resource detail panel** (resizable) showing labels, conditions, container statuses, events, and more
-- **Cluster events** per namespace for debugging
-- **Auto-reconnecting WebSocket** with exponential backoff
-- Out-of-cluster and in-cluster configuration support
+- Topology graph: Pods, Deployments, ReplicaSets, Services, Ingresses, StatefulSets, DaemonSets, Jobs, Secrets, ConfigMaps, Nodes
+- Edges: ownership (Deploy/RS/STS/DS/Job -> Pod), Service selectors, Ingress -> Service
+- One namespace at a time (full canvas) with switcher; related resources grouped as DAG columns
+- Live updates via informers + WebSocket (not polling)
+- Resource type filters, search, detail panel (status, containers, conditions, usage)
+- Optional metrics via Metrics Server (`kubectl top` API): pod/node CPU (cores) and memory (GB)
 
 ## Prerequisites
 
-- Go (version 1.26 or higher)
-- Node.js (version >= v20.10.0 or higher)
-- npm (version >= 10.8 or higher)
-- Access to a Kubernetes cluster
+- Go 1.26+
+- Node.js >= 20.10, npm >= 10.8 (dev UI only)
+- Cluster access (`KUBECONFIG` or in-cluster SA)
+- Optional: Metrics Server for usage (`minikube addons enable metrics-server`)
 
-## Installation
+## Quick start (out of cluster)
 
-1. Clone the repository:
-   ```
-   git clone https://github.com/Saumya40-codes/k8s-visualizer
-   cd k8s-cluster-visualizer
-   ```
-
-2. Install backend dependencies:
-   ```
-   go mod tidy
-   ```
-
-3. Install frontend dependencies:
-   ```
-   cd ui
-   npm install
-   ```
-
-## Usage (Out-of-cluster configuration)
-
-0. Set the `KUBECONFIG` env variable
-   ```
-   EXPORT KUBECONFIG='path/to/your/.kube/config`
-   ```
-   
-1. Start the backend server:
-   ```
-   go run main.go
-   ```
-
-2. In a new terminal, start the frontend development server.
-   ```
-   cd ui
-   npm run dev
-   ```
-
-3. Open your browser and navigate to `http://localhost:5173` (or the appropriate port)
-
-4. Use the interface to visualize your Kubernetes cluster
-
-
-## Usage (In-cluster configuration)
-
-1. Run the following command
-
+```bash
+export KUBECONFIG=~/.kube/config   # if needed
+go mod tidy
+go run main.go
 ```
+
+- UI (embedded): http://localhost:8081
+- WebSocket: :8080
+
+Dev frontend (hot reload):
+
+```bash
+cd ui && npm install && npm run dev
+# http://localhost:5173  (WS still :8080)
+```
+
+After UI changes that ship with the binary:
+
+```bash
+cd ui && npm run build
+# commit ui/dist (//go:embed)
+```
+
+## Metrics
+
+Default: `METRICS_PROVIDER=metrics-server`. Topology works without it.
+
+| Env | Default | Notes |
+|-----|---------|--------|
+| `METRICS_PROVIDER` | `metrics-server` | or `none` |
+| `METRICS_INTERVAL` | `15s` | scrape period |
+| `METRICS_TIMEOUT` | `10s` | per scrape |
+
+See [docs/metrics.md](./docs/metrics.md).
+
+## In-cluster
+
+```bash
 kubectl create -f https://raw.githubusercontent.com/Saumya40-codes/k8s-visualizer/refs/heads/master/yamls/all-in-one.yaml
+kubectl get pods
+kubectl port-forward svc/k8s-visualizer-backend-<tag> 8081:8081
+kubectl port-forward svc/k8s-visualizer-backend-<tag> 8080:8080
 ```
 
-   - Wait for respective deployments to get ready, you can check using
-   
-      ```
-      kubectl get pods
-      ```
-      
-
-2. Port forwarding (Or you can expose the service running (see: `kubectl get svc`)    you can see `kubectl get pods` to see pod full tag/name of your pod
- 
-   ```bash
-   kubectl port-forward svc/k8s-visualizer-backend-yourrespectivetag 8081:8081
-   ```
-   and 
-   ```bash
-   kubectl port-forward svc/k8s-visualizer-backend-yourrespectivetag 8080:8080
-   ```
-
-4. Open your browser and navigate to `http://localhost:8081` (or the appropriate port)
-
-5. Use the interface to visualize your Kubernetes cluster
+Open http://localhost:8081
 
 ## Architecture
 
 ```
-┌─────────────┐     WebSocket      ┌──────────────────────────────┐
-│  React UI   │ <----------------> │  Go Backend (:8080 WS)       │
-│  (:8081)    │                    │                              │
-│  React Flow │                    │  SharedInformerFactory        │
-│  topology   │                    │  ├── Watch Pods, Deployments │
-│  graph      │                    │  ├── Watch Services, Ingress │
-│             │                    │  ├── Watch Nodes, Events ... │
-│             │                    │  └── Cache (in-memory)       │
-└─────────────┘                    └──────────────────────────────┘
-                                              │
-                                              │ List + Watch
-                                              v
-                                   ┌──────────────────────┐
-                                   │  Kubernetes API      │
-                                   │  Server               │
-                                   └──────────────────────┘
+React UI (:8081 / Vite :5173)
+    |  WebSocket
+Go backend (:8080)
+    |  SharedInformers (List+Watch) + optional metrics.k8s.io
+Kubernetes API
 ```
 
-The backend uses Kubernetes informers instead of polling. On startup it does a full List to populate an in-memory cache, then switches to Watch for incremental updates. Any change triggers a debounced state rebuild that gets pushed to all connected WebSocket clients.
+State is rebuilt on informer events (debounced) and pushed to all WS clients. Metrics enrich pod/node usage when available.
+
+## License
+
+See repository license file if present.
