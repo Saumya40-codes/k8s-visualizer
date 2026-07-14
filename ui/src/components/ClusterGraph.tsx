@@ -13,7 +13,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import type { Namespace, K8sNode } from '../lib/types/namespaces';
-import type { ResourceTypeFilter } from '../App';
+import type { ResourceTypeFilter, Theme } from '../App';
 import { nodeTypes, type ResourceNodeData } from './CustomNodes';
 import ResourceDetail from './ResourceDetail';
 import './ClusterGraph.css';
@@ -23,12 +23,28 @@ interface ClusterGraphProps {
   nodes: K8sNode[];
   searchQuery: string;
   resourceFilters: ResourceTypeFilter;
+  /** Active namespace; change refits the view. */
+  focusKey?: string;
+  theme?: Theme;
 }
 
-const edgeStyle = { stroke: '#4ecca3', strokeWidth: 1.5 };
-const orphanEdgeStyle = { stroke: '#4ecca3', strokeWidth: 1.5, strokeDasharray: '4 4' };
-const routeEdgeStyle = { stroke: '#f5a623', strokeWidth: 1.5 };
-const ownerEdgeStyle = { stroke: '#4ecca3', strokeWidth: 1 };
+function readCssVar(name: string, fallback: string): string {
+  if (typeof document === 'undefined') return fallback;
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return v || fallback;
+}
+
+function edgeStyles() {
+  const edge = readCssVar('--edge', '#5c5c5c');
+  const route = readCssVar('--edge-route', '#c47d00');
+  const owner = readCssVar('--edge-owner', '#8a8a8a');
+  return {
+    edgeStyle: { stroke: edge, strokeWidth: 1.5 },
+    orphanEdgeStyle: { stroke: edge, strokeWidth: 1.5, strokeDasharray: '4 4' },
+    routeEdgeStyle: { stroke: route, strokeWidth: 1.5 },
+    ownerEdgeStyle: { stroke: owner, strokeWidth: 1 },
+  };
+}
 
 function stableHash(s: string): number {
   let h = 0;
@@ -43,7 +59,6 @@ function stableSort<T>(items: T[], key: (item: T) => string): T[] {
     const ha = stableHash(key(a));
     const hb = stableHash(key(b));
     if (ha !== hb) return ha - hb;
-    // collision: fall back to lexicographic
     return key(a).localeCompare(key(b));
   });
 }
@@ -55,14 +70,64 @@ function stableSort<T>(items: T[], key: (item: T) => string): T[] {
 // Job -> Pod
 function resolveVisibility(filters: ResourceTypeFilter): ResourceTypeFilter {
   const f = { ...filters };
-  // If deployments hidden, hide replicasets (their direct children)
   if (!f.deployment) f.replicaset = false;
-  // If all workload controllers are hidden, hide pods
   if (!f.deployment && !f.statefulset && !f.daemonset && !f.job && !f.replicaset) {
     f.pod = false;
   }
   return f;
 }
+
+/** Prefer wider grids when a single namespace has the full canvas. */
+function idealCols(count: number, maxCols: number, minCols = 2): number {
+  if (count <= 0) return minCols;
+  const sqrt = Math.ceil(Math.sqrt(count));
+  return Math.min(maxCols, Math.max(minCols, sqrt));
+}
+
+/** Union-find for grouping related resources into DAG components. */
+function createUnionFind() {
+  const parent = new Map<string, string>();
+  const find = (x: string): string => {
+    if (!parent.has(x)) parent.set(x, x);
+    let r = x;
+    while (parent.get(r) !== r) r = parent.get(r)!;
+    let c = x;
+    while (parent.get(c) !== r) {
+      const n = parent.get(c)!;
+      parent.set(c, r);
+      c = n;
+    }
+    return r;
+  };
+  const union = (a: string, b: string) => {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent.set(ra, rb);
+  };
+  return { find, union, ensure: (x: string) => { if (!parent.has(x)) parent.set(x, x); } };
+}
+
+/** DAG layer: top → bottom ownership / routing flow */
+const LAYER: Record<string, number> = {
+  ingress: 0,
+  service: 1,
+  deployment: 2,
+  statefulset: 2,
+  daemonset: 2,
+  job: 2,
+  replicaset: 3,
+  pod: 4,
+};
+
+type GraphItem = {
+  id: string;
+  kind: string;
+  layer: number;
+  sortKey: string;
+  node: Node;
+  /** true if this item has a parent in the relation graph (not a group root) */
+  hasParent: boolean;
+};
 
 function buildGraph(
   namespaces: Namespace[],
@@ -75,17 +140,17 @@ function buildGraph(
   const query = searchQuery.toLowerCase();
   const matchesSearch = (name: string) => !query || name.toLowerCase().includes(query);
   const filters = resolveVisibility(rawFilters);
+  const { edgeStyle, orphanEdgeStyle, routeEdgeStyle, ownerEdgeStyle } = edgeStyles();
 
-  const colWidth = 200;
-  const rowHeight = 90;
-  const nsGap = 80;
-  const podCols = 4;
-  const miscCols = 3;
+  const singleNs = namespaces.length <= 1;
+  const colWidth = singleNs ? 210 : 190;
+  const rowHeight = singleNs ? 105 : 90;
+  const groupGap = singleNs ? 70 : 50;
+  const nsGap = 100;
 
-  // Track which node IDs actually exist in the graph so we only create edges to real targets
   const nodeIdSet = new Set<string>();
-
   let nsXOffset = 0;
+  let contentWidth = 0;
 
   const sortedNamespaces = stableSort(namespaces, ns => ns.name);
 
@@ -93,7 +158,6 @@ function buildGraph(
     const nsX = nsXOffset;
     const nsId = `ns-${ns.unique_id}`;
 
-    // Collect filtered resources, sorted deterministically by name
     const ingresses = filters.ingress ? stableSort((ns.ingresses || []).filter(i => matchesSearch(i.name)), i => i.name) : [];
     const services = filters.service ? stableSort((ns.services || []).filter(s => matchesSearch(s.name)), s => s.name) : [];
     const deployments = filters.deployment ? stableSort((ns.deployments || []).filter(d => matchesSearch(d.name)), d => d.name) : [];
@@ -105,20 +169,220 @@ function buildGraph(
     const secrets = filters.secret ? stableSort((ns.secrets || []).filter(s => matchesSearch(s.name)), s => s.name) : [];
     const configMaps = filters.configmap ? stableSort((ns.config_maps || []).filter(cm => matchesSearch(cm.name)), cm => cm.name) : [];
 
-    const maxItems = Math.max(
-      1,
-      ingresses.length,
-      services.length,
-      deployments.length + statefulSets.length + daemonSets.length,
-      replicaSets.length,
-      Math.min(pods.length, podCols),
-      Math.min(secrets.length, miscCols),
-      Math.min(configMaps.length, miscCols),
-    );
-    const nsWidth = maxItems * colWidth;
+    const items = new Map<string, GraphItem>();
+    const pendingEdges: Edge[] = [];
+    const uf = createUnionFind();
+
+    const addItem = (id: string, kind: string, sortKey: string, data: ResourceNodeData) => {
+      const item: GraphItem = {
+        id,
+        kind,
+        layer: LAYER[kind] ?? 5,
+        sortKey,
+        hasParent: false,
+        node: { id, type: 'resource', position: { x: 0, y: 0 }, data },
+      };
+      items.set(id, item);
+      uf.ensure(id);
+      return item;
+    };
+
+    const link = (parentId: string, childId: string, edge: Edge) => {
+      if (!items.has(parentId) || !items.has(childId)) return;
+      uf.union(parentId, childId);
+      items.get(childId)!.hasParent = true;
+      pendingEdges.push(edge);
+    };
+
+    ingresses.forEach(ing => {
+      addItem(`ing-${ing.unique_id}`, 'ingress', ing.name, {
+        label: ing.name, resourceType: 'ingress', rules: ing.rules, created_at: ing.created_at,
+      });
+    });
+    services.forEach(svc => {
+      addItem(`svc-${svc.unique_id}`, 'service', svc.name, {
+        label: svc.name, resourceType: 'service', subtitle: svc.type,
+        selector: svc.selector, ports: svc.ports, created_at: svc.created_at,
+      });
+    });
+    deployments.forEach(dep => {
+      addItem(`dep-${dep.unique_id}`, 'deployment', dep.name, {
+        label: dep.name, resourceType: 'deployment',
+        status: `${dep.ready_replicas}/${dep.replicas} ready`,
+        selector: dep.selector, created_at: dep.created_at,
+      });
+    });
+    statefulSets.forEach(sts => {
+      addItem(`sts-${sts.unique_id}`, 'statefulset', sts.name, {
+        label: sts.name, resourceType: 'statefulset',
+        status: `${sts.ready_replicas}/${sts.replicas} ready`, created_at: sts.created_at,
+      });
+    });
+    daemonSets.forEach(ds => {
+      addItem(`ds-${ds.unique_id}`, 'daemonset', ds.name, {
+        label: ds.name, resourceType: 'daemonset',
+        status: `${ds.ready_number}/${ds.desired_number} ready`, created_at: ds.created_at,
+      });
+    });
+    jobs.forEach(job => {
+      addItem(`job-${job.unique_id}`, 'job', job.name, {
+        label: job.name, resourceType: 'job', status: job.status,
+        subtitle: `${job.succeeded} succeeded, ${job.failed} failed`, created_at: job.created_at,
+      });
+    });
+    replicaSets.forEach(rs => {
+      addItem(`rs-${rs.unique_id}`, 'replicaset', rs.name, {
+        label: rs.name, resourceType: 'replicaset',
+        status: `${rs.ready_replicas}/${rs.replicas} ready`, created_at: rs.created_at,
+      });
+    });
+    pods.forEach(pod => {
+      const usageBits: string[] = [];
+      if (pod.usage?.cpu) usageBits.push(`${pod.usage.cpu} cores`);
+      if (pod.usage?.memory) usageBits.push(pod.usage.memory);
+      const usageLine = usageBits.length ? usageBits.join(' · ') : undefined;
+      const nodeLine = pod.node_name ? `Node: ${pod.node_name}` : undefined;
+      addItem(`pod-${pod.unique_id}`, 'pod', pod.name, {
+        label: pod.name, resourceType: 'pod', status: pod.effective_status,
+        subtitle: usageLine || nodeLine,
+        ip: pod.ip, containers: pod.container_statuses, conditions: pod.conditions, created_at: pod.created_at,
+        node_name: pod.node_name,
+        requests: pod.requests, limits: pod.limits, usage: pod.usage,
+      });
+    });
+
+
+    // Ingress -> Service
+    ingresses.forEach(ing => {
+      const id = `ing-${ing.unique_id}`;
+      ing.rules?.forEach(rule => {
+        rule.paths?.forEach(path => {
+          const targetSvc = (ns.services || []).find(s => s.name === path.service_name);
+          if (!targetSvc) return;
+          const svcId = `svc-${targetSvc.unique_id}`;
+          link(id, svcId, {
+            id: `${id}->${svcId}`, source: id, target: svcId,
+            style: routeEdgeStyle, animated: true,
+          });
+        });
+      });
+    });
+
+    // Service -> Pod (selector)
+    services.forEach(svc => {
+      if (!svc.selector || !filters.pod) return;
+      const id = `svc-${svc.unique_id}`;
+      pods.forEach(pod => {
+        if (pod.labels && Object.entries(svc.selector!).every(([k, v]) => pod.labels?.[k] === v)) {
+          const podId = `pod-${pod.unique_id}`;
+          link(id, podId, {
+            id: `${id}->${podId}`, source: id, target: podId,
+            style: { ...routeEdgeStyle, strokeDasharray: '5 3', strokeWidth: 1 }, animated: true,
+          });
+        }
+      });
+    });
+
+    // Deployment -> ReplicaSet
+    replicaSets.forEach(rs => {
+      const rsId = `rs-${rs.unique_id}`;
+      rs.owner_references?.forEach(ref => {
+        if (ref.kind === 'Deployment') {
+          const depId = `dep-${ref.uid}`;
+          link(depId, rsId, {
+            id: `${depId}->${rsId}`, source: depId, target: rsId, style: edgeStyle,
+          });
+        }
+      });
+    });
+
+    // Owner -> Pod
+    pods.forEach(pod => {
+      const podId = `pod-${pod.unique_id}`;
+      pod.owner_references?.forEach(ref => {
+        const prefixMap: Record<string, string> = {
+          ReplicaSet: 'rs', StatefulSet: 'sts', DaemonSet: 'ds', Job: 'job',
+        };
+        const prefix = prefixMap[ref.kind];
+        if (!prefix) return;
+        const parentId = `${prefix}-${ref.uid}`;
+        link(parentId, podId, {
+          id: `${parentId}->${podId}`, source: parentId, target: podId, style: ownerEdgeStyle,
+        });
+      });
+    });
+
+    const components = new Map<string, GraphItem[]>();
+    items.forEach(item => {
+      const root = uf.find(item.id);
+      if (!components.has(root)) components.set(root, []);
+      components.get(root)!.push(item);
+    });
+
+    const componentList = [...components.values()].map(group => {
+      const sorted = stableSort(group, g => g.sortKey);
+      return sorted;
+    }).sort((a, b) => {
+      if (b.length !== a.length) return b.length - a.length;
+      return a[0].sortKey.localeCompare(b[0].sortKey);
+    });
+
+    const measureComponent = (group: GraphItem[]) => {
+      const byLayer = new Map<number, GraphItem[]>();
+      group.forEach(g => {
+        if (!byLayer.has(g.layer)) byLayer.set(g.layer, []);
+        byLayer.get(g.layer)!.push(g);
+      });
+      let maxW = colWidth;
+      byLayer.forEach((layerItems, layer) => {
+        const n = layerItems.length;
+        const maxCols = layer === 4 ? (singleNs ? 4 : 3) : (singleNs ? 3 : 2);
+        const cols = Math.min(n, Math.max(1, idealCols(n, maxCols, 1)));
+        maxW = Math.max(maxW, cols * colWidth);
+      });
+      return maxW;
+    };
+
+    const groupWidths = componentList.map(measureComponent);
+    const dagWidth = componentList.length === 0
+      ? colWidth * 2
+      : groupWidths.reduce((s, w) => s + w, 0) + Math.max(0, componentList.length - 1) * groupGap;
+
+    const miscItems: GraphItem[] = [];
+    secrets.forEach(secret => {
+      const id = `secret-${secret.unique_id}`;
+      miscItems.push({
+        id, kind: 'secret', layer: 0, sortKey: secret.name, hasParent: false,
+        node: {
+          id, type: 'resource', position: { x: 0, y: 0 },
+          data: {
+            label: secret.name, resourceType: 'secret',
+            subtitle: `${secret.key_count} keys`, type: secret.type, created_at: secret.created_at,
+          } satisfies ResourceNodeData,
+        },
+      });
+    });
+    configMaps.forEach(cm => {
+      const id = `cm-${cm.unique_id}`;
+      miscItems.push({
+        id, kind: 'configmap', layer: 0, sortKey: cm.name, hasParent: false,
+        node: {
+          id, type: 'resource', position: { x: 0, y: 0 },
+          data: {
+            label: cm.name, resourceType: 'configmap',
+            subtitle: `${cm.key_count} keys`, created_at: cm.created_at,
+          } satisfies ResourceNodeData,
+        },
+      });
+    });
+    const miscCols = singleNs ? idealCols(miscItems.length, 8, 3) : 4;
+    const miscWidth = miscItems.length === 0
+      ? 0
+      : Math.min(miscItems.length, miscCols) * colWidth;
+    const nsWidth = Math.max(dagWidth, miscWidth, singleNs ? colWidth * 3 : colWidth);
+
     let currentY = 0;
 
-    // Namespace node (always shown)
     flowNodes.push({
       id: nsId,
       type: 'resource',
@@ -126,195 +390,154 @@ function buildGraph(
       data: { label: ns.name, resourceType: 'namespace', status: 'Active', created_at: ns.created_at } satisfies ResourceNodeData,
     });
     nodeIdSet.add(nsId);
-    currentY += rowHeight;
+    currentY += rowHeight + (singleNs ? 16 : 8);
 
-    // Helper: lay out a row of items, centered within namespace width
-    const addRow = (items: { id: string; node: Node }[], connectToNs: boolean) => {
-      if (items.length === 0) return;
-      const totalWidth = items.length * colWidth;
-      const startX = nsX + (nsWidth - totalWidth) / 2;
-      items.forEach((item, i) => {
-        item.node.position = { x: startX + i * colWidth, y: currentY };
-        flowNodes.push(item.node);
-        nodeIdSet.add(item.id);
-        if (connectToNs) {
-          flowEdges.push({ id: `${nsId}->${item.id}`, source: nsId, target: item.id, style: edgeStyle });
-        }
+    const dagStartX = nsX + Math.max(0, (nsWidth - dagWidth) / 2);
+    let groupX = dagStartX;
+    let maxDagBottom = currentY;
+
+    componentList.forEach((group, gi) => {
+      const gWidth = groupWidths[gi];
+      const byLayer = new Map<number, GraphItem[]>();
+      group.forEach(g => {
+        if (!byLayer.has(g.layer)) byLayer.set(g.layer, []);
+        byLayer.get(g.layer)!.push(g);
       });
-      currentY += rowHeight;
-    };
 
-    // Helper: add a grid of items
-    const addGrid = (
-      items: { id: string; node: Node }[],
-      cols: number,
-    ) => {
-      if (items.length === 0) return;
-      const visibleCols = Math.min(items.length, cols);
-      const totalWidth = visibleCols * colWidth;
-      const startX = nsX + (nsWidth - totalWidth) / 2;
-      items.forEach((item, i) => {
-        item.node.position = { x: startX + (i % cols) * colWidth, y: currentY + Math.floor(i / cols) * rowHeight };
-        flowNodes.push(item.node);
-        nodeIdSet.add(item.id);
+      byLayer.forEach((layerItems, layer) => {
+        byLayer.set(layer, stableSort(layerItems, i => i.sortKey));
       });
-      currentY += Math.ceil(items.length / cols) * rowHeight;
-    };
 
-    // --- Ingresses ---
-    addRow(
-      ingresses.map(ing => {
-        const id = `ing-${ing.unique_id}`;
-        ing.rules?.forEach(rule => {
-          rule.paths?.forEach(path => {
-            const targetSvc = (ns.services || []).find(s => s.name === path.service_name);
-            if (targetSvc) {
-              flowEdges.push({ id: `${id}->svc-${targetSvc.unique_id}`, source: id, target: `svc-${targetSvc.unique_id}`, style: routeEdgeStyle, animated: true });
-            }
-          });
-        });
-        return { id, node: { id, type: 'resource', position: { x: 0, y: 0 }, data: { label: ing.name, resourceType: 'ingress', rules: ing.rules, created_at: ing.created_at } satisfies ResourceNodeData } };
-      }),
-      true,
-    );
+      const layers = [...byLayer.keys()].sort((a, b) => a - b);
+      let y = currentY;
 
-    // --- Services ---
-    addRow(
-      services.map(svc => {
-        const id = `svc-${svc.unique_id}`;
-        if (svc.selector && filters.pod) {
-          (ns.pods || []).forEach(pod => {
-            if (pod.labels && Object.entries(svc.selector!).every(([k, v]) => pod.labels?.[k] === v)) {
-              flowEdges.push({ id: `${id}->pod-${pod.unique_id}`, source: id, target: `pod-${pod.unique_id}`, style: { ...routeEdgeStyle, strokeDasharray: '5 3', strokeWidth: 1 }, animated: true });
-            }
-          });
-        }
-        return { id, node: { id, type: 'resource', position: { x: 0, y: 0 }, data: { label: svc.name, resourceType: 'service', subtitle: svc.type, selector: svc.selector, ports: svc.ports, created_at: svc.created_at } satisfies ResourceNodeData } };
-      }),
-      true,
-    );
+      layers.forEach(layer => {
+        const layerItems = byLayer.get(layer)!;
+        const n = layerItems.length;
+        const maxCols = layer === 4 ? (singleNs ? 4 : 3) : (singleNs ? 3 : 2);
+        const cols = Math.min(n, Math.max(1, idealCols(n, maxCols, 1)));
+        const rows = Math.ceil(n / cols);
+        const rowW = cols * colWidth;
+        const startX = groupX + (gWidth - rowW) / 2;
 
-    // --- Workloads (Deployments + StatefulSets + DaemonSets) ---
-    const workloads: { id: string; node: Node }[] = [];
-    deployments.forEach(dep => {
-      const id = `dep-${dep.unique_id}`;
-      workloads.push({ id, node: { id, type: 'resource', position: { x: 0, y: 0 }, data: { label: dep.name, resourceType: 'deployment', status: `${dep.ready_replicas}/${dep.replicas} ready`, selector: dep.selector, created_at: dep.created_at } satisfies ResourceNodeData } });
-    });
-    statefulSets.forEach(sts => {
-      const id = `sts-${sts.unique_id}`;
-      workloads.push({ id, node: { id, type: 'resource', position: { x: 0, y: 0 }, data: { label: sts.name, resourceType: 'statefulset', status: `${sts.ready_replicas}/${sts.replicas} ready`, created_at: sts.created_at } satisfies ResourceNodeData } });
-    });
-    daemonSets.forEach(ds => {
-      const id = `ds-${ds.unique_id}`;
-      workloads.push({ id, node: { id, type: 'resource', position: { x: 0, y: 0 }, data: { label: ds.name, resourceType: 'daemonset', status: `${ds.ready_number}/${ds.desired_number} ready`, created_at: ds.created_at } satisfies ResourceNodeData } });
-    });
-    addRow(workloads, true);
+        layerItems.forEach((item, i) => {
+          const col = i % cols;
+          const row = Math.floor(i / cols);
+          item.node.position = {
+            x: startX + col * colWidth,
+            y: y + row * rowHeight,
+          };
+          flowNodes.push(item.node);
+          nodeIdSet.add(item.id);
 
-    // --- Jobs ---
-    addRow(
-      jobs.map(job => {
-        const id = `job-${job.unique_id}`;
-        return { id, node: { id, type: 'resource', position: { x: 0, y: 0 }, data: { label: job.name, resourceType: 'job', status: job.status, subtitle: `${job.succeeded} succeeded, ${job.failed} failed`, created_at: job.created_at } satisfies ResourceNodeData } };
-      }),
-      true,
-    );
-
-    // --- ReplicaSets ---
-    addRow(
-      replicaSets.map(rs => {
-        const id = `rs-${rs.unique_id}`;
-        rs.owner_references?.forEach(ref => {
-          if (ref.kind === 'Deployment') {
-            flowEdges.push({ id: `dep-${ref.uid}->${id}`, source: `dep-${ref.uid}`, target: id, style: edgeStyle });
+          // Component roots connect to the namespace node
+          if (!item.hasParent) {
+            flowEdges.push({
+              id: `${nsId}->${item.id}`,
+              source: nsId,
+              target: item.id,
+              style: item.kind === 'pod' ? orphanEdgeStyle : edgeStyle,
+            });
           }
         });
-        return { id, node: { id, type: 'resource', position: { x: 0, y: 0 }, data: { label: rs.name, resourceType: 'replicaset', status: `${rs.ready_replicas}/${rs.replicas} ready`, created_at: rs.created_at } satisfies ResourceNodeData } };
-      }),
-      false,
-    );
 
-    // --- Pods ---
-    if (pods.length > 0) {
-      const podItems = pods.map(pod => {
-        const id = `pod-${pod.unique_id}`;
-        // Owner edges
-        let hasOwner = false;
-        pod.owner_references?.forEach(ref => {
-          const prefixMap: Record<string, string> = { ReplicaSet: 'rs', StatefulSet: 'sts', DaemonSet: 'ds', Job: 'job' };
-          const prefix = prefixMap[ref.kind];
-          if (prefix) {
-            flowEdges.push({ id: `${prefix}-${ref.uid}->${id}`, source: `${prefix}-${ref.uid}`, target: id, style: ownerEdgeStyle });
-            hasOwner = true;
-          }
+        y += rows * rowHeight + 8;
+      });
+
+      maxDagBottom = Math.max(maxDagBottom, y);
+      groupX += gWidth + groupGap;
+    });
+
+    pendingEdges.forEach(e => flowEdges.push(e));
+
+    currentY = maxDagBottom + (miscItems.length > 0 ? 24 : 0);
+
+    // Secrets and configmaps below workload DAGs
+    if (miscItems.length > 0) {
+      const cols = Math.min(miscItems.length, miscCols);
+      const totalW = cols * colWidth;
+      const startX = nsX + (nsWidth - totalW) / 2;
+      stableSort(miscItems, i => `${i.kind}-${i.sortKey}`).forEach((item, i) => {
+        item.node.position = {
+          x: startX + (i % cols) * colWidth,
+          y: currentY + Math.floor(i / cols) * rowHeight,
+        };
+        flowNodes.push(item.node);
+        nodeIdSet.add(item.id);
+        flowEdges.push({
+          id: `${nsId}->${item.id}`,
+          source: nsId,
+          target: item.id,
+          style: orphanEdgeStyle,
         });
-        if (!hasOwner) {
-          flowEdges.push({ id: `${nsId}->${id}`, source: nsId, target: id, style: orphanEdgeStyle });
-        }
-        return { id, node: { id, type: 'resource', position: { x: 0, y: 0 }, data: { label: pod.name, resourceType: 'pod', status: pod.effective_status, subtitle: pod.node_name ? `Node: ${pod.node_name}` : undefined, ip: pod.ip, containers: pod.container_statuses, conditions: pod.conditions, created_at: pod.created_at } satisfies ResourceNodeData } };
       });
-      addGrid(podItems, podCols);
+      currentY += Math.ceil(miscItems.length / cols) * rowHeight;
     }
 
-    // --- Secrets ---
-    {
-      const secretItems = secrets.map(secret => {
-        const id = `secret-${secret.unique_id}`;
-        flowEdges.push({ id: `${nsId}->${id}`, source: nsId, target: id, style: orphanEdgeStyle });
-        return { id, node: { id, type: 'resource', position: { x: 0, y: 0 }, data: { label: secret.name, resourceType: 'secret', subtitle: `${secret.key_count} keys`, type: secret.type, created_at: secret.created_at } satisfies ResourceNodeData } };
-      });
-      addGrid(secretItems, miscCols);
-    }
-
-    // --- ConfigMaps ---
-    {
-      const cmItems = configMaps.map(cm => {
-        const id = `cm-${cm.unique_id}`;
-        flowEdges.push({ id: `${nsId}->${id}`, source: nsId, target: id, style: orphanEdgeStyle });
-        return { id, node: { id, type: 'resource', position: { x: 0, y: 0 }, data: { label: cm.name, resourceType: 'configmap', subtitle: `${cm.key_count} keys`, created_at: cm.created_at } satisfies ResourceNodeData } };
-      });
-      addGrid(cmItems, miscCols);
-    }
-
+    contentWidth = nsXOffset + nsWidth;
     nsXOffset += nsWidth + nsGap;
   });
 
-  // Cluster nodes (k8s Nodes) above everything
   if (filters.node) {
-    const nodeY = -120;
-    const totalNodeWidth = k8sNodes.length * 220;
-    const nodeStartX = Math.max(0, (nsXOffset - nsGap) / 2 - totalNodeWidth / 2);
-    stableSort(k8sNodes.filter(n => matchesSearch(n.name)), n => n.name).forEach((node, i) => {
+    const nodeY = -140;
+    const filteredNodes = stableSort(k8sNodes.filter(n => matchesSearch(n.name)), n => n.name);
+    const totalNodeWidth = Math.max(filteredNodes.length, 1) * 220;
+    const baseWidth = contentWidth > 0 ? contentWidth : totalNodeWidth;
+    const nodeStartX = Math.max(0, baseWidth / 2 - totalNodeWidth / 2);
+    filteredNodes.forEach((node, i) => {
       const id = `node-${node.unique_id}`;
       flowNodes.push({
         id,
         type: 'resource',
         position: { x: nodeStartX + i * 220, y: nodeY },
-        data: { label: node.name, resourceType: 'node', status: node.status, subtitle: `${node.capacity.cpu} CPU, ${node.capacity.memory} mem`, internal_ip: node.internal_ip, os_image: node.os_image, kubelet_version: node.kubelet_version } satisfies ResourceNodeData,
+        data: {
+          label: node.name, resourceType: 'node', status: node.status,
+          subtitle: (() => {
+            const pods = `pods ${node.pod_count ?? 0}/${node.pod_capacity || node.capacity.pods}`;
+            if (node.usage) {
+              return `${node.usage.cpu || '-'} / ${node.allocatable?.cpu || node.capacity.cpu} cores · ${node.usage.memory || '-'} / ${node.allocatable?.memory || node.capacity.memory} · ${pods}`;
+            }
+            return `${node.capacity.cpu} cores · ${node.capacity.memory} · ${pods}`;
+          })(),
+          internal_ip: node.internal_ip, os_image: node.os_image, kubelet_version: node.kubelet_version,
+          capacity: node.capacity, allocatable: node.allocatable, usage: node.usage,
+          pod_count: node.pod_count, pod_capacity: node.pod_capacity || node.capacity.pods,
+        } satisfies ResourceNodeData,
       });
       nodeIdSet.add(id);
     });
   }
 
-  // Only keep edges whose source AND target both exist in the graph
   const validEdges = flowEdges.filter(e => nodeIdSet.has(e.source) && nodeIdSet.has(e.target));
-
   return { nodes: flowNodes, edges: validEdges };
 }
 
-export default function ClusterGraph({ namespaces, nodes: k8sNodes, searchQuery, resourceFilters }: ClusterGraphProps) {
-  const [selectedNode, setSelectedNode] = useState<ResourceNodeData | null>(null);
+export default function ClusterGraph({ namespaces, nodes: k8sNodes, searchQuery, resourceFilters, focusKey, theme = 'light' }: ClusterGraphProps) {
+  // Selection by id so detail follows live metrics
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [interactiveNodes, setInteractiveNodes] = useState<Node[]>([]);
   const [interactiveEdges, setInteractiveEdges] = useState<Edge[]>([]);
   const reactFlowRef = useRef<ReactFlowInstance | null>(null);
-  const hasFitView = useRef(false);
+  const prevFocusKey = useRef<string | undefined>(undefined);
 
   const graphData = useMemo(
     () => buildGraph(namespaces, k8sNodes, searchQuery, resourceFilters),
-    [namespaces, k8sNodes, searchQuery, resourceFilters]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [namespaces, k8sNodes, searchQuery, resourceFilters, theme]
   );
 
   useEffect(() => {
+    // Reset layout when switching namespaces
+    const focusChanged = focusKey !== prevFocusKey.current;
+    if (focusChanged) {
+      prevFocusKey.current = focusKey;
+      setSelectedNodeId(null);
+    }
+
     setInteractiveNodes(prev => {
+      if (focusChanged) {
+        return graphData.nodes;
+      }
       const posMap = new Map(prev.map(n => [n.id, n.position]));
       return graphData.nodes.map(n => ({
         ...n,
@@ -322,14 +545,21 @@ export default function ClusterGraph({ namespaces, nodes: k8sNodes, searchQuery,
       }));
     });
     setInteractiveEdges(graphData.edges);
-  }, [graphData]);
+  }, [graphData, focusKey]);
+
+  const selectedNode = useMemo(() => {
+    if (!selectedNodeId) return null;
+    const n = interactiveNodes.find(node => node.id === selectedNodeId);
+    return n ? (n.data as unknown as ResourceNodeData) : null;
+  }, [selectedNodeId, interactiveNodes]);
 
   useEffect(() => {
-    if (!hasFitView.current && interactiveNodes.length > 0 && reactFlowRef.current) {
-      setTimeout(() => reactFlowRef.current?.fitView({ padding: 0.15 }), 100);
-      hasFitView.current = true;
-    }
-  }, [interactiveNodes]);
+    if (interactiveNodes.length === 0 || !reactFlowRef.current) return;
+    const t = setTimeout(() => {
+      reactFlowRef.current?.fitView({ padding: 0.18, duration: 250 });
+    }, 80);
+    return () => clearTimeout(t);
+  }, [focusKey, interactiveNodes.length > 0]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onNodesChange: OnNodesChange = useCallback(
     (changes) => setInteractiveNodes((nds) => applyNodeChanges(changes, nds)),
@@ -342,7 +572,7 @@ export default function ClusterGraph({ namespaces, nodes: k8sNodes, searchQuery,
   );
 
   const onNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
-    setSelectedNode(node.data as unknown as ResourceNodeData);
+    setSelectedNodeId(node.id);
   }, []);
 
   return (
@@ -354,23 +584,23 @@ export default function ClusterGraph({ namespaces, nodes: k8sNodes, searchQuery,
         onEdgesChange={onEdgesChange}
         nodeTypes={nodeTypes}
         onNodeClick={onNodeClick}
-        onInit={(instance) => { reactFlowRef.current = instance; }}
-        minZoom={0.1}
+        onInit={(instance) => {
+          reactFlowRef.current = instance;
+          requestAnimationFrame(() => instance.fitView({ padding: 0.18 }));
+        }}
+        minZoom={0.08}
         maxZoom={2}
         defaultEdgeOptions={{ type: 'smoothstep' }}
         proOptions={{ hideAttribution: true }}
+        fitView
+        fitViewOptions={{ padding: 0.18 }}
+        colorMode={theme}
       >
-        <Background color="#2a3a5a" gap={20} />
-        <Controls
-          style={{
-            background: '#1e2a4a',
-            border: '1px solid #2a3a5a',
-            borderRadius: 8,
-          }}
-        />
+        <Background color="var(--canvas-dot)" gap={20} />
+        <Controls showInteractive={false} />
       </ReactFlow>
       {selectedNode && (
-        <ResourceDetail data={selectedNode} onClose={() => setSelectedNode(null)} />
+        <ResourceDetail data={selectedNode} onClose={() => setSelectedNodeId(null)} />
       )}
     </div>
   );
