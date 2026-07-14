@@ -15,16 +15,57 @@ export type ResourceNodeData = {
   [key: string]: unknown;
 };
 
-const statusColor = (status?: string): string => {
-  if (!status) return '#4ecca3';
-  const s = status.toLowerCase();
-  if (['running', 'ready', 'active', 'available', 'complete', 'succeeded'].some(k => s.includes(k))) return '#4ecca3';
-  if (['crashloopbackoff', 'error', 'failed', 'imagepullbackoff', 'errimagepull', 'oomkilled'].some(k => s.includes(k))) return '#e94560';
-  if (['pending', 'waiting', 'containercreating', 'podinitializing', 'notready'].some(k => s.includes(k))) return '#f5a623';
-  if (['terminating', 'terminated'].some(k => s.includes(k))) return '#ff6b6b';
-  if (['unknown', 'completed'].some(k => s.includes(k))) return '#8e8e93';
-  return '#4ecca3';
-};
+/** Status color for graph nodes and detail panel. */
+export function statusColor(status?: string): string {
+  const root = typeof document !== 'undefined' ? getComputedStyle(document.documentElement) : null;
+  const ok = root?.getPropertyValue('--ok').trim() || '#0a7f45';
+  const err = root?.getPropertyValue('--err').trim() || '#d94848';
+  const warn = root?.getPropertyValue('--warn').trim() || '#c47d00';
+  const muted = root?.getPropertyValue('--text-muted').trim() || '#8a8a8a';
+
+  if (!status) return ok;
+  const s = status.toLowerCase().trim();
+
+  // "N/M ready" replica counts
+  const ratio = s.match(/^(\d+)\s*\/\s*(\d+)\s*ready$/);
+  if (ratio) {
+    const ready = Number(ratio[1]);
+    const desired = Number(ratio[2]);
+    if (desired === 0) return muted;
+    if (ready === 0 && desired > 0) return err;
+    if (ready < desired) return warn;
+    return ok;
+  }
+
+  if ([
+    'crashloopbackoff', 'error', 'failed', 'imagepullbackoff', 'errimagepull',
+    'oomkilled', 'createcontainererror', 'invalidimage name', 'evicted',
+    'nodeaffinity', 'unschedulable', 'deadlineexceeded',
+  ].some(k => s.includes(k))) return err;
+
+  if (['terminating', 'terminated', 'notready', 'unhealthy'].some(k => s.includes(k))) return err;
+
+  if ([
+    'pending', 'waiting', 'containercreating', 'podinitializing',
+    'init:', 'progressing', 'updating',
+  ].some(k => s.includes(k))) return warn;
+
+  if (['unknown', 'completed'].some(k => s.includes(k))) return muted;
+
+  if (['running', 'ready', 'active', 'available', 'complete', 'succeeded', 'bound'].some(k => s.includes(k))) return ok;
+
+  return ok;
+}
+
+/** Badge colors matching statusColor(). */
+export function statusBadgeStyle(status?: string): { color: string; background: string; borderColor: string } {
+  const color = statusColor(status);
+  return {
+    color,
+    background: `${color}20`,
+    borderColor: `${color}60`,
+  };
+}
 
 const iconMap: Record<string, LucideIcon> = {
   namespace: Folder,
@@ -60,7 +101,7 @@ function ResourceNode({ data }: NodeProps) {
       {nodeData.status && (
         <span
           className="resource-node__badge"
-          style={{ background: `${color}20`, color, borderColor: `${color}60` }}
+          style={statusBadgeStyle(nodeData.status)}
         >
           {nodeData.status}
         </span>

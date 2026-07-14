@@ -20,6 +20,19 @@ export interface OwnerRef {
     uid: string;
 }
 
+export interface ResourceUsage {
+    cpu?: string;
+    memory?: string;
+    updated_at?: string;
+}
+
+export interface MetricsStatus {
+    provider: string;
+    available: boolean;
+    message?: string;
+    scraped_at?: string;
+}
+
 export interface Pod {
     name: string;
     status: string;
@@ -32,6 +45,9 @@ export interface Pod {
     container_statuses?: ContainerStatus[];
     conditions?: PodCondition[];
     owner_references?: OwnerRef[];
+    requests?: ResourceList;
+    limits?: ResourceList;
+    usage?: ResourceUsage;
 }
 
 export interface Deployment {
@@ -157,9 +173,13 @@ export interface K8sNode {
     unique_id: string;
     labels?: Record<string, string>;
     capacity: ResourceList;
+    allocatable?: ResourceList;
     internal_ip: string;
     os_image: string;
     kubelet_version: string;
+    usage?: ResourceUsage;
+    pod_count: number;
+    pod_capacity?: string;
 }
 
 export interface Namespace {
@@ -182,4 +202,5 @@ export interface Namespace {
 export interface ClusterState {
     namespaces: Namespace[];
     nodes: K8sNode[];
+    metrics?: MetricsStatus;
 }

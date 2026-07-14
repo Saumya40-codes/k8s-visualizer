@@ -3,8 +3,9 @@
   right: 0;
   top: 0;
   bottom: 0;
-  background: linear-gradient(180deg, #1e2a4a 0%, #16213e 100%);
-  border-left: 1px solid #2a3a5a;
+  background: var(--bg-elevated);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-panel);
   overflow-y: auto;
   z-index: 10;
   display: flex;
@@ -17,7 +18,7 @@
   transition: background 0.15s;
 }
 .detail-panel__drag:hover {
-  background: rgba(78, 204, 163, 0.3);
+  background: var(--accent-soft);
 }
 
 .detail-panel__content {
@@ -34,7 +35,7 @@
 }
 
 .detail-panel__resource-type {
-  color: #8e8e93;
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 1px;
   font-size: 0.75rem;
@@ -43,7 +44,7 @@
 .detail-panel__close {
   background: none;
   border: none;
-  color: #8e8e93;
+  color: var(--text-muted);
   cursor: pointer;
   padding: 4px;
   border-radius: 4px;
@@ -51,12 +52,12 @@
   align-items: center;
 }
 .detail-panel__close:hover {
-  color: #e0e0e0;
-  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  background: var(--bg-muted);
 }
 
 .detail-panel__title {
-  color: #e0e0e0;
+  color: var(--text);
   font-weight: 700;
   font-size: 1.1rem;
   margin: 0 0 8px;
@@ -66,17 +67,74 @@
 .detail-panel__status {
   display: inline-block;
   font-size: 0.75rem;
-  padding: 2px 10px;
+  font-weight: 600;
+  padding: 3px 10px;
   border-radius: 12px;
-  background: rgba(78, 204, 163, 0.15);
-  color: #4ecca3;
-  border: 1px solid rgba(78, 204, 163, 0.3);
-  margin-bottom: 12px;
+  border: 1px solid;
+  margin-bottom: 8px;
+  /* color/background set inline via shared statusBadgeStyle() */
+}
+
+.detail-panel__subtitle {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  margin-bottom: 10px;
+}
+
+.detail-panel__inline-status {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 10px;
+  border: 1px solid;
+  /* color/background set inline via shared statusBadgeStyle() */
+}
+
+.detail-panel__structured {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.detail-panel__structured-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--bg-subtle);
+}
+
+.detail-panel__structured-row {
+  font-size: 0.75rem;
+  color: var(--text);
+}
+
+.detail-panel__structured-field {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin-bottom: 4px;
+  font-size: 0.75rem;
+}
+.detail-panel__structured-field:last-child {
+  margin-bottom: 0;
+}
+
+.detail-panel__structured-key {
+  color: var(--text-muted);
+  min-width: 88px;
+  flex-shrink: 0;
+  text-transform: lowercase;
+}
+
+.detail-panel__structured-val {
+  color: var(--text);
+  word-break: break-all;
 }
 
 .detail-panel__divider {
   border: none;
-  border-top: 1px solid #2a3a5a;
+  border-top: 1px solid var(--border);
   margin: 0 0 12px;
 }
 
@@ -86,8 +144,8 @@
 }
 
 .detail-panel__key {
-  color: #8e8e93;
-  border-bottom: 1px solid #2a3a5a;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
   font-size: 0.75rem;
   padding: 6px 8px 6px 0;
   vertical-align: top;
@@ -95,8 +153,8 @@
 }
 
 .detail-panel__value {
-  color: #e0e0e0;
-  border-bottom: 1px solid #2a3a5a;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
   font-size: 0.75rem;
   padding: 6px 0;
   word-break: break-all;
@@ -104,10 +162,43 @@
 
 .detail-panel__value--mono {
   white-space: pre-wrap;
-  font-family: monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 tr:last-child .detail-panel__key,
 tr:last-child .detail-panel__value {
+  border-bottom: none;
+}
+
+.detail-panel__resources {
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+}
+.detail-panel__resources-title {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+.detail-panel__value--resource {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.detail-panel__resources .detail-panel__table {
+  margin: 0;
+}
+.detail-panel__resources .detail-panel__key,
+.detail-panel__resources .detail-panel__value {
+  border-bottom: 1px solid var(--border);
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+.detail-panel__resources tr:last-child .detail-panel__key,
+.detail-panel__resources tr:last-child .detail-panel__value {
   border-bottom: none;
 }
