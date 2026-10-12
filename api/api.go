@@ -24,7 +24,9 @@ var (
 	kubeconfig string
 )
 
-func init() {
+// setupClient parses flags and builds the clientset. Not an init() so tests
+// can import the package without a cluster.
+func setupClient() {
 	if home := homedir.HomeDir(); home != "" {
 		flag.StringVar(&kubeconfig, "kubeconfig", filepath.Join(home, ".kube", "config"), "(optional) absolute path to the kubeconfig file")
 	} else {
@@ -53,6 +55,7 @@ func init() {
 }
 
 func StartMonitoring() {
+	setupClient()
 	server = NewServer()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -70,6 +73,10 @@ func StartMonitoring() {
 
 	informerMgr := NewInformerManager(clientset, server.stateChan)
 	server.informerMgr = informerMgr
+
+	retentionCfg := LoadRetentionConfig()
+	informerMgr.SetRetention(NewRetentionStore(retentionCfg, clientset))
+	log.Printf("terminated pod retention=%s max=%d", retentionCfg.TTL, retentionCfg.MaxPods)
 
 	metricsCfg := metrics.LoadConfig()
 	metricsMgr, err := metrics.NewManager(metricsCfg, restConfig)

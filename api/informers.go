@@ -52,11 +52,17 @@ type InformerManager struct {
 	debounceTimer *time.Timer
 	debounceMu    sync.Mutex
 
-	usage UsageSource
+	usage     UsageSource
+	retention *RetentionStore
 }
 
 func (im *InformerManager) SetUsageSource(u UsageSource) {
 	im.usage = u
+}
+
+func (im *InformerManager) SetRetention(r *RetentionStore) {
+	im.retention = r
+	r.onChange = im.debounceBuildState
 }
 
 func (im *InformerManager) PushState() {
@@ -94,6 +100,23 @@ func NewInformerManager(client kubernetes.Interface, stateChan chan ClusterState
 
 	factory.Core().V1().Namespaces().Informer().AddEventHandler(handler)
 	factory.Core().V1().Pods().Informer().AddEventHandler(handler)
+	factory.Core().V1().Pods().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		UpdateFunc: func(oldObj, newObj interface{}) {
+			oldPod, ok1 := oldObj.(*corev1.Pod)
+			newPod, ok2 := newObj.(*corev1.Pod)
+			if ok1 && ok2 && im.retention != nil {
+				im.retention.OnPodUpdate(oldPod, newPod)
+			}
+		},
+		DeleteFunc: func(obj interface{}) {
+			if tomb, ok := obj.(cache.DeletedFinalStateUnknown); ok {
+				obj = tomb.Obj
+			}
+			if p, ok := obj.(*corev1.Pod); ok && im.retention != nil {
+				im.retention.OnPodDelete(p, im.buildPod(p))
+			}
+		},
+	})
 	factory.Core().V1().Services().Informer().AddEventHandler(handler)
 	factory.Core().V1().Secrets().Informer().AddEventHandler(handler)
 	factory.Core().V1().ConfigMaps().Informer().AddEventHandler(handler)
@@ -178,6 +201,9 @@ func (im *InformerManager) buildClusterState() ClusterState {
 		Namespaces: nsList,
 		Nodes:      im.buildNodes(),
 	}
+	if im.retention != nil {
+		state.Retention.TTLSeconds = int(im.retention.cfg.TTL / time.Second)
+	}
 	if im.usage != nil {
 		st := im.usage.Status()
 		state.Metrics = &MetricsStatus{
@@ -199,65 +225,88 @@ func (im *InformerManager) buildPods(ns string) []Pod {
 
 	var result []Pod
 	for _, p := range pods {
-		pod := Pod{
-			Name:      p.Name,
-			Status:    string(p.Status.Phase),
-			CreatedAt: p.CreationTimestamp.Format(time.RFC3339),
-			UniqueID:  string(p.UID),
-			NodeName:  p.Spec.NodeName,
-			IP:        p.Status.PodIP,
-			Labels:    p.Labels,
-		}
-
-		for _, cs := range p.Status.ContainerStatuses {
-			container := ContainerStatus{
-				Name:         cs.Name,
-				Ready:        cs.Ready,
-				RestartCount: cs.RestartCount,
-				Image:        cs.Image,
-			}
-			if cs.State.Running != nil {
-				container.State = "running"
-			} else if cs.State.Waiting != nil {
-				container.State = "waiting"
-				container.Reason = cs.State.Waiting.Reason
-			} else if cs.State.Terminated != nil {
-				container.State = "terminated"
-				container.Reason = cs.State.Terminated.Reason
-				container.ExitCode = &cs.State.Terminated.ExitCode
-			}
-			pod.ContainerStatuses = append(pod.ContainerStatuses, container)
-		}
-
-		for _, c := range p.Status.Conditions {
-			pod.Conditions = append(pod.Conditions, PodCondition{
-				Type:   string(c.Type),
-				Status: string(c.Status),
-				Reason: c.Reason,
-			})
-		}
-
-		for _, ref := range p.OwnerReferences {
-			pod.OwnerReferences = append(pod.OwnerReferences, OwnerRef{
-				Kind: ref.Kind,
-				Name: ref.Name,
-				UID:  string(ref.UID),
-			})
-		}
-
-		pod.EffectiveStatus = deriveEffectiveStatus(p)
-		pod.Requests, pod.Limits = podResourceTotals(p)
-
-		if im.usage != nil {
-			if u, ok := im.usage.PodUsage(ns, p.Name); ok {
-				usage := ResourceUsage(u)
-				pod.Usage = &usage
-			}
-		}
-
-		result = append(result, pod)
+		result = append(result, im.buildPod(p))
+	}
+	if im.retention != nil {
+		result = append(result, im.retention.PodsFor(ns)...)
 	}
 	return result
+}
+
+func (im *InformerManager) buildPod(p *corev1.Pod) Pod {
+	pod := Pod{
+		Name:      p.Name,
+		Status:    string(p.Status.Phase),
+		CreatedAt: p.CreationTimestamp.Format(time.RFC3339),
+		UniqueID:  string(p.UID),
+		NodeName:  p.Spec.NodeName,
+		IP:        p.Status.PodIP,
+		Reason:    p.Status.Reason,
+		Message:   p.Status.Message,
+		Labels:    p.Labels,
+	}
+
+	for _, cs := range p.Status.ContainerStatuses {
+		container := ContainerStatus{
+			Name:         cs.Name,
+			Ready:        cs.Ready,
+			RestartCount: cs.RestartCount,
+			Image:        cs.Image,
+		}
+		if cs.State.Running != nil {
+			container.State = "running"
+		} else if cs.State.Waiting != nil {
+			container.State = "waiting"
+			container.Reason = cs.State.Waiting.Reason
+			container.Message = cs.State.Waiting.Message
+		} else if t := cs.State.Terminated; t != nil {
+			container.State = "terminated"
+			container.Reason = t.Reason
+			container.Message = t.Message
+			container.ExitCode = &t.ExitCode
+			if !t.FinishedAt.IsZero() {
+				container.FinishedAt = t.FinishedAt.Format(time.RFC3339)
+			}
+		}
+		if t := cs.LastTerminationState.Terminated; t != nil {
+			container.LastState = &TerminationState{
+				Reason:   t.Reason,
+				Message:  t.Message,
+				ExitCode: t.ExitCode,
+			}
+			if !t.FinishedAt.IsZero() {
+				container.LastState.FinishedAt = t.FinishedAt.Format(time.RFC3339)
+			}
+		}
+		pod.ContainerStatuses = append(pod.ContainerStatuses, container)
+	}
+
+	for _, c := range p.Status.Conditions {
+		pod.Conditions = append(pod.Conditions, PodCondition{
+			Type:   string(c.Type),
+			Status: string(c.Status),
+			Reason: c.Reason,
+		})
+	}
+
+	for _, ref := range p.OwnerReferences {
+		pod.OwnerReferences = append(pod.OwnerReferences, OwnerRef{
+			Kind: ref.Kind,
+			Name: ref.Name,
+			UID:  string(ref.UID),
+		})
+	}
+
+	pod.EffectiveStatus = deriveEffectiveStatus(p)
+	pod.Requests, pod.Limits = podResourceTotals(p)
+
+	if im.usage != nil {
+		if u, ok := im.usage.PodUsage(p.Namespace, p.Name); ok {
+			usage := ResourceUsage(u)
+			pod.Usage = &usage
+		}
+	}
+	return pod
 }
 
 func podResourceTotals(p *corev1.Pod) (requests *ResourceList, limits *ResourceList) {
@@ -306,7 +355,12 @@ func deriveEffectiveStatus(p *corev1.Pod) string {
 	if p.DeletionTimestamp != nil {
 		return "Terminating"
 	}
+	return deriveContainerStatus(p)
+}
 
+// deriveContainerStatus is the kubectl-style status ignoring deletion, i.e.
+// what the pod was actually doing (OOMKilled, Error, Completed, ...).
+func deriveContainerStatus(p *corev1.Pod) string {
 	for _, cs := range p.Status.InitContainerStatuses {
 		if cs.State.Waiting != nil && cs.State.Waiting.Reason != "" {
 			return cs.State.Waiting.Reason

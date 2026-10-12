@@ -1,13 +1,33 @@
 package api
 
 type ContainerStatus struct {
-	Name         string `json:"name"`
-	Ready        bool   `json:"ready"`
-	RestartCount int32  `json:"restart_count"`
-	State        string `json:"state"`
-	Reason       string `json:"reason,omitempty"`
-	ExitCode     *int32 `json:"exit_code,omitempty"`
-	Image        string `json:"image"`
+	Name         string            `json:"name"`
+	Ready        bool              `json:"ready"`
+	RestartCount int32             `json:"restart_count"`
+	State        string            `json:"state"`
+	Reason       string            `json:"reason,omitempty"`
+	Message      string            `json:"message,omitempty"`
+	ExitCode     *int32            `json:"exit_code,omitempty"`
+	FinishedAt   string            `json:"finished_at,omitempty"`
+	LastState    *TerminationState `json:"last_state,omitempty"`
+	Image        string            `json:"image"`
+}
+
+// TerminationState is a container's previous termination (why it last restarted).
+type TerminationState struct {
+	Reason     string `json:"reason,omitempty"`
+	Message    string `json:"message,omitempty"`
+	ExitCode   int32  `json:"exit_code"`
+	FinishedAt string `json:"finished_at,omitempty"`
+}
+
+// RetainedInfo marks a pod that no longer exists in the cluster but is kept
+// around for POD_RETENTION so users can see why it went away.
+type RetainedInfo struct {
+	DeletedAt    string `json:"deleted_at"`
+	ExpiresAt    string `json:"expires_at"`
+	LastStatus   string `json:"last_status"`
+	LogsCaptured bool   `json:"logs_captured"`
 }
 
 type PodCondition struct {
@@ -47,6 +67,8 @@ type Pod struct {
 	UniqueID          string            `json:"unique_id"`
 	NodeName          string            `json:"node_name"`
 	IP                string            `json:"ip"`
+	Reason            string            `json:"reason,omitempty"`
+	Message           string            `json:"message,omitempty"`
 	Labels            map[string]string `json:"labels,omitempty"`
 	ContainerStatuses []ContainerStatus `json:"container_statuses,omitempty"`
 	Conditions        []PodCondition    `json:"conditions,omitempty"`
@@ -54,6 +76,7 @@ type Pod struct {
 	Requests          *ResourceList     `json:"requests,omitempty"`
 	Limits            *ResourceList     `json:"limits,omitempty"`
 	Usage             *ResourceUsage    `json:"usage,omitempty"`
+	Retained          *RetainedInfo     `json:"retained,omitempty"`
 }
 
 type Deployment struct {
@@ -209,4 +232,9 @@ type ClusterState struct {
 	Namespaces []Namespace    `json:"namespaces"`
 	Nodes      []Node         `json:"nodes"`
 	Metrics    *MetricsStatus `json:"metrics,omitempty"`
+	Retention  RetentionInfo  `json:"retention"`
+}
+
+type RetentionInfo struct {
+	TTLSeconds int `json:"ttl_seconds"`
 }

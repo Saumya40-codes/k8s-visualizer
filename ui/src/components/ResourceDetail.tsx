@@ -1,19 +1,28 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import type { ResourceNodeData } from './CustomNodes';
 import { statusBadgeStyle, statusColor } from './CustomNodes';
+import PodLogs from './PodLogs';
+import type { ContainerStatus, K8sEvent, RetainedInfo } from '../lib/types/namespaces';
+import { formatDuration, useNow } from '../lib/time';
 import './ResourceDetail.css';
 
 interface ResourceDetailProps {
   data: ResourceNodeData;
+  /** Resource no longer exists; showing the last known snapshot. */
+  gone?: boolean;
   onClose: () => void;
 }
+
+type Tab = 'overview' | 'logs' | 'events';
+const LOGS_MIN_WIDTH = 640;
 
 const HIDDEN_KEYS = new Set([
   'label', 'resourceType', 'status', 'subtitle', 'count',
   'usage', 'capacity', 'allocatable', 'requests', 'limits',
   'pod_count', 'pod_capacity',
   'cpu_millicores', 'memory_bytes',
+  'namespace', 'pod_uid', 'retained', 'events', 'pod_reason', 'pod_message',
 ]);
 
 function isStatusField(key: string): boolean {
@@ -151,8 +160,121 @@ function ResourcesSummary({ data }: { data: ResourceNodeData }) {
   );
 }
 
-export default function ResourceDetail({ data, onClose }: ResourceDetailProps) {
+function fmtTime(ts?: string): string | undefined {
+  if (!ts) return undefined;
+  const d = new Date(ts);
+  return Number.isNaN(d.getTime()) || d.getFullYear() < 1970 ? undefined : d.toLocaleString();
+}
+
+/** Why a pod died or last restarted: pod reason, container exits, warnings. */
+function TerminationSummary({ data }: { data: ResourceNodeData }) {
+  const retained = data.retained as RetainedInfo | undefined;
+  const containers = (data.containers as ContainerStatus[] | undefined) || [];
+  const events = (data.events as K8sEvent[] | undefined) || [];
+  const now = useNow(!!retained);
+
+  const exits = containers.flatMap(c => {
+    const out: { container: string; when: string; reason?: string; code?: number; message?: string; at?: string }[] = [];
+    if (c.state === 'terminated') {
+      out.push({ container: c.name, when: 'final', reason: c.reason, code: c.exit_code, message: c.message, at: c.finished_at });
+    }
+    if (c.last_state) {
+      out.push({
+        container: c.name, when: `previous run (restarts: ${c.restart_count})`, reason: c.last_state.reason,
+        code: c.last_state.exit_code, message: c.last_state.message, at: c.last_state.finished_at,
+      });
+    }
+    return out;
+  });
+  const warnings = events.filter(e => e.type === 'Warning');
+  const podReason = data.pod_reason as string | undefined;
+  const podMessage = data.pod_message as string | undefined;
+
+  if (!retained && exits.length === 0 && !podReason && warnings.length === 0) return null;
+
+  return (
+    <div className="detail-panel__resources detail-panel__termination">
+      <div className="detail-panel__resources-title">
+        {retained ? 'Why it terminated' : 'Last termination'}
+      </div>
+      {retained && (
+        <div className="detail-panel__termination-row">
+          Deleted at {fmtTime(retained.deleted_at)} · last status{' '}
+          <span className="detail-panel__inline-status" style={statusBadgeStyle(retained.last_status)}>
+            {retained.last_status}
+          </span>
+          <div className="detail-panel__termination-sub">
+            Kept for {formatDuration(new Date(retained.expires_at).getTime() - now)} more
+          </div>
+        </div>
+      )}
+      {podReason && (
+        <div className="detail-panel__termination-row">
+          <strong>{podReason}</strong>{podMessage ? `: ${podMessage}` : ''}
+        </div>
+      )}
+      {exits.map((x, i) => (
+        <div key={i} className="detail-panel__termination-row">
+          <span className="detail-panel__structured-key">{x.container}</span>{' '}
+          <span className="detail-panel__inline-status" style={statusBadgeStyle(x.reason || 'terminated')}>
+            {x.reason || 'terminated'}
+          </span>{' '}
+          exit {x.code ?? '?'} · {x.when}
+          {fmtTime(x.at) && <div className="detail-panel__termination-sub">finished {fmtTime(x.at)}</div>}
+          {x.message && <pre className="detail-panel__termination-msg">{x.message}</pre>}
+        </div>
+      ))}
+      {warnings.slice(-3).map((e, i) => (
+        <div key={`w${i}`} className="detail-panel__termination-row">
+          <span className="detail-panel__inline-status" style={statusBadgeStyle('warning error')}>{e.reason}</span>{' '}
+          {e.message}{e.count > 1 ? ` (×${e.count})` : ''}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function EventsList({ events }: { events: K8sEvent[] }) {
+  if (events.length === 0) {
+    return <div className="detail-panel__empty">No events (Kubernetes keeps events for ~1h).</div>;
+  }
+  const sorted = [...events].sort((a, b) => (b.last_seen || '').localeCompare(a.last_seen || ''));
+  return (
+    <div className="detail-panel__structured">
+      {sorted.map((e, i) => (
+        <div
+          key={i}
+          className="detail-panel__structured-card"
+          style={e.type === 'Warning' ? { borderLeftColor: statusColor('error'), borderLeftWidth: 3 } : undefined}
+        >
+          <div className="detail-panel__structured-field">
+            <span className="detail-panel__inline-status" style={statusBadgeStyle(e.type === 'Warning' ? 'error' : 'running')}>
+              {e.reason}
+            </span>
+            <span className="detail-panel__structured-key">
+              {fmtTime(e.last_seen) || fmtTime(e.first_seen)}{e.count > 1 ? ` · ×${e.count}` : ''}
+            </span>
+          </div>
+          <div className="detail-panel__structured-val">{e.message}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default function ResourceDetail({ data, gone = false, onClose }: ResourceDetailProps) {
   const [width, setWidth] = useState(400);
+  const [tab, setTab] = useState<Tab>('overview');
+  const isPod = data.resourceType === 'pod' && typeof data.pod_uid === 'string';
+  const identity = `${data.resourceType}/${data.pod_uid ?? data.label}`;
+
+  // Back to overview when a different resource is selected.
+  useEffect(() => { setTab('overview'); }, [identity]);
+
+  const selectTab = (t: Tab) => {
+    setTab(t);
+    if (t === 'logs') setWidth(w => Math.max(w, Math.min(LOGS_MIN_WIDTH, window.innerWidth - 80)));
+  };
   const dragging = useRef(false);
   const startX = useRef(0);
   const startWidth = useRef(0);
@@ -166,7 +288,7 @@ export default function ResourceDetail({ data, onClose }: ResourceDetailProps) {
     const onMouseMove = (ev: MouseEvent) => {
       if (!dragging.current) return;
       const delta = startX.current - ev.clientX;
-      setWidth(Math.max(280, Math.min(800, startWidth.current + delta)));
+      setWidth(Math.max(280, Math.min(Math.max(800, window.innerWidth * 0.7), startWidth.current + delta)));
     };
     const onMouseUp = () => {
       dragging.current = false;
@@ -194,7 +316,7 @@ export default function ResourceDetail({ data, onClose }: ResourceDetailProps) {
       }}
     >
       <div className="detail-panel__drag" onMouseDown={onDragStart} />
-      <div className="detail-panel__content">
+      <div className={`detail-panel__content${tab === 'logs' ? ' detail-panel__content--logs' : ''}`}>
         <div className="detail-panel__header">
           <span className="detail-panel__resource-type">{data.resourceType}</span>
           <button className="detail-panel__close" onClick={onClose}>
@@ -210,7 +332,44 @@ export default function ResourceDetail({ data, onClose }: ResourceDetailProps) {
         {data.subtitle && (
           <div className="detail-panel__subtitle">{data.subtitle}</div>
         )}
-        <hr className="detail-panel__divider" />
+        {gone && (
+          <div className="detail-panel__gone">
+            This resource no longer exists in the cluster. Showing its last known state.
+          </div>
+        )}
+        {isPod && (
+          <div className="detail-panel__tabs" role="tablist">
+            {(['overview', 'logs', 'events'] as Tab[]).map(t => (
+              <button
+                key={t}
+                role="tab"
+                aria-selected={tab === t}
+                className={`detail-panel__tab${tab === t ? ' detail-panel__tab--on' : ''}`}
+                onClick={() => selectTab(t)}
+              >
+                {t}
+                {t === 'events' && Array.isArray(data.events) && data.events.length > 0 && (
+                  <span className="detail-panel__tab-count">{data.events.length}</span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+        {!isPod && <hr className="detail-panel__divider" />}
+        {isPod && tab === 'logs' && (
+          <PodLogs
+            key={data.pod_uid as string}
+            namespace={data.namespace as string}
+            pod={data.label}
+            uid={data.pod_uid as string}
+            containers={(data.containers as ContainerStatus[] | undefined) || []}
+            retained={data.retained as RetainedInfo | undefined}
+            gone={gone}
+          />
+        )}
+        {isPod && tab === 'events' && <EventsList events={(data.events as K8sEvent[] | undefined) || []} />}
+        {tab === 'overview' && <>
+        {isPod && <TerminationSummary data={data} />}
         <ResourcesSummary data={data} />
         <table className="detail-panel__table">
           <tbody>
@@ -241,6 +400,7 @@ export default function ResourceDetail({ data, onClose }: ResourceDetailProps) {
             })}
           </tbody>
         </table>
+        </>}
       </div>
     </div>
   );

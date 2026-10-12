@@ -4,7 +4,7 @@ import { ClusterState, Namespace } from './lib/types/namespaces';
 import {
   Search, Server, Database, Network, Lock, FileText,
   Globe, LayoutGrid, Repeat, Briefcase, Monitor, Copy, Loader,
-  ChevronLeft, ChevronRight, Sun, Moon,
+  ChevronLeft, ChevronRight, Sun, Moon, History,
   type LucideIcon,
 } from 'lucide-react';
 import ClusterGraph from './components/ClusterGraph';
@@ -87,6 +87,7 @@ function App() {
   const [activeNamespace, setActiveNamespace] = useState<string | null>(null);
   const [resourceFilters, setResourceFilters] = useState<ResourceTypeFilter>({ ...defaultFilters });
   const [theme, setTheme] = useState<Theme>(() => readStoredTheme());
+  const [showTerminated, setShowTerminated] = useState(true);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -165,6 +166,12 @@ function App() {
     if (!clusterState || !activeNamespace) return [];
     return clusterState.namespaces.filter(ns => ns.name === activeNamespace);
   }, [clusterState, activeNamespace]);
+
+  const retainedCount = useMemo(
+    () => focusedNamespaces.reduce((n, ns) => n + (ns.pods || []).filter(p => p.retained).length, 0),
+    [focusedNamespaces]
+  );
+  const retentionSec = clusterState?.retention?.ttl_seconds ?? 0;
 
   return (
     <div className="app-container">
@@ -280,6 +287,19 @@ function App() {
                 </button>
               );
             })}
+            {retentionSec > 0 && (
+              <>
+                <div className="filter-bar__divider" />
+                <button
+                  className={`filter-chip ${showTerminated ? 'filter-chip--on' : 'filter-chip--off'}`}
+                  onClick={() => setShowTerminated(v => !v)}
+                  title={`Deleted pods are kept for ${retentionSec}s (POD_RETENTION) so you can see why they went away`}
+                >
+                  <History size={12} />
+                  <span>Deleted pods{retainedCount > 0 ? ` (${retainedCount})` : ''}</span>
+                </button>
+              </>
+            )}
           </div>
           <div className="graph-area">
             {focusedNamespaces.length === 0 ? (
@@ -294,6 +314,7 @@ function App() {
                 resourceFilters={resourceFilters}
                 focusKey={activeNamespace || ''}
                 theme={theme}
+                showTerminated={showTerminated}
               />
             )}
           </div>

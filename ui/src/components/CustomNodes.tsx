@@ -1,5 +1,7 @@
 import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
+import type { RetainedInfo } from '../lib/types/namespaces';
+import { formatDuration, useNow } from '../lib/time';
 import {
   Server, Database, Network, Lock, FileText, GitBranch,
   Globe, LayoutGrid, Repeat, Briefcase, Monitor, Folder, Copy,
@@ -50,7 +52,7 @@ export function statusColor(status?: string): string {
     'init:', 'progressing', 'updating',
   ].some(k => s.includes(k))) return warn;
 
-  if (['unknown', 'completed'].some(k => s.includes(k))) return muted;
+  if (['unknown', 'completed', 'deleted'].some(k => s.includes(k))) return muted;
 
   if (['running', 'ready', 'active', 'available', 'complete', 'succeeded', 'bound'].some(k => s.includes(k))) return ok;
 
@@ -83,13 +85,28 @@ const iconMap: Record<string, LucideIcon> = {
   default: GitBranch,
 };
 
+/** "was OOMKilled · 42s left" for pods kept after deletion. */
+function RetainedSubtitle({ retained }: { retained: RetainedInfo }) {
+  const now = useNow();
+  const left = new Date(retained.expires_at).getTime() - now;
+  return (
+    <span className="resource-node__subtitle">
+      was {retained.last_status} · {left > 0 ? `${formatDuration(left)} left` : 'expiring'}
+    </span>
+  );
+}
+
 function ResourceNode({ data }: NodeProps) {
   const nodeData = data as unknown as ResourceNodeData;
   const color = statusColor(nodeData.status);
   const Icon = iconMap[nodeData.resourceType] || iconMap.default;
+  const retained = nodeData.retained as RetainedInfo | undefined;
 
   return (
-    <div className="resource-node" style={{ borderColor: color }}>
+    <div
+      className={`resource-node${retained ? ' resource-node--ghost' : ''}`}
+      style={{ borderColor: color }}
+    >
       <Handle type="target" position={Position.Top} style={{ background: color, width: 6, height: 6 }} />
       <div className="resource-node__header">
         <Icon size={14} color={color} />
@@ -106,7 +123,9 @@ function ResourceNode({ data }: NodeProps) {
           {nodeData.status}
         </span>
       )}
-      {nodeData.subtitle && (
+      {retained ? (
+        <RetainedSubtitle retained={retained} />
+      ) : nodeData.subtitle && (
         <span className="resource-node__subtitle">{nodeData.subtitle}</span>
       )}
       <Handle type="source" position={Position.Bottom} style={{ background: color, width: 6, height: 6 }} />

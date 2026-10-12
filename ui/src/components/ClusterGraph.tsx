@@ -26,6 +26,8 @@ interface ClusterGraphProps {
   /** Active namespace; change refits the view. */
   focusKey?: string;
   theme?: Theme;
+  /** Show deleted pods kept for the retention window. */
+  showTerminated?: boolean;
 }
 
 function readCssVar(name: string, fallback: string): string {
@@ -134,6 +136,7 @@ function buildGraph(
   k8sNodes: K8sNode[],
   searchQuery: string,
   rawFilters: ResourceTypeFilter,
+  showTerminated: boolean,
 ): { nodes: Node[]; edges: Edge[] } {
   const flowNodes: Node[] = [];
   const flowEdges: Edge[] = [];
@@ -165,7 +168,9 @@ function buildGraph(
     const daemonSets = filters.daemonset ? stableSort((ns.daemon_sets || []).filter(d => matchesSearch(d.name)), d => d.name) : [];
     const jobs = filters.job ? stableSort((ns.jobs || []).filter(j => matchesSearch(j.name)), j => j.name) : [];
     const replicaSets = filters.replicaset ? stableSort((ns.replica_sets || []).filter(rs => matchesSearch(rs.name)), rs => rs.name) : [];
-    const pods = filters.pod ? stableSort((ns.pods || []).filter(p => matchesSearch(p.name)), p => p.name) : [];
+    const pods = filters.pod
+      ? stableSort((ns.pods || []).filter(p => matchesSearch(p.name) && (showTerminated || !p.retained)), p => p.name)
+      : [];
     const secrets = filters.secret ? stableSort((ns.secrets || []).filter(s => matchesSearch(s.name)), s => s.name) : [];
     const configMaps = filters.configmap ? stableSort((ns.config_maps || []).filter(cm => matchesSearch(cm.name)), cm => cm.name) : [];
 
@@ -242,12 +247,16 @@ function buildGraph(
       if (pod.usage?.memory) usageBits.push(pod.usage.memory);
       const usageLine = usageBits.length ? usageBits.join(' · ') : undefined;
       const nodeLine = pod.node_name ? `Node: ${pod.node_name}` : undefined;
+      const podRef = `Pod/${pod.name}`;
       addItem(`pod-${pod.unique_id}`, 'pod', pod.name, {
         label: pod.name, resourceType: 'pod', status: pod.effective_status,
         subtitle: usageLine || nodeLine,
         ip: pod.ip, containers: pod.container_statuses, conditions: pod.conditions, created_at: pod.created_at,
         node_name: pod.node_name,
         requests: pod.requests, limits: pod.limits, usage: pod.usage,
+        namespace: ns.name, pod_uid: pod.unique_id, retained: pod.retained,
+        pod_reason: pod.reason, pod_message: pod.message,
+        events: (ns.events || []).filter(e => e.object === podRef),
       });
     });
 
@@ -273,6 +282,7 @@ function buildGraph(
       if (!svc.selector || !filters.pod) return;
       const id = `svc-${svc.unique_id}`;
       pods.forEach(pod => {
+        if (pod.retained) return; // deleted pods no longer receive traffic
         if (pod.labels && Object.entries(svc.selector!).every(([k, v]) => pod.labels?.[k] === v)) {
           const podId = `pod-${pod.unique_id}`;
           link(id, podId, {
@@ -307,7 +317,8 @@ function buildGraph(
         if (!prefix) return;
         const parentId = `${prefix}-${ref.uid}`;
         link(parentId, podId, {
-          id: `${parentId}->${podId}`, source: parentId, target: podId, style: ownerEdgeStyle,
+          id: `${parentId}->${podId}`, source: parentId, target: podId,
+          style: pod.retained ? { ...ownerEdgeStyle, strokeDasharray: '3 4' } : ownerEdgeStyle,
         });
       });
     });
@@ -512,7 +523,9 @@ function buildGraph(
   return { nodes: flowNodes, edges: validEdges };
 }
 
-export default function ClusterGraph({ namespaces, nodes: k8sNodes, searchQuery, resourceFilters, focusKey, theme = 'light' }: ClusterGraphProps) {
+export default function ClusterGraph({
+  namespaces, nodes: k8sNodes, searchQuery, resourceFilters, focusKey, theme = 'light', showTerminated = true,
+}: ClusterGraphProps) {
   // Selection by id so detail follows live metrics
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [interactiveNodes, setInteractiveNodes] = useState<Node[]>([]);
@@ -521,9 +534,9 @@ export default function ClusterGraph({ namespaces, nodes: k8sNodes, searchQuery,
   const prevFocusKey = useRef<string | undefined>(undefined);
 
   const graphData = useMemo(
-    () => buildGraph(namespaces, k8sNodes, searchQuery, resourceFilters),
+    () => buildGraph(namespaces, k8sNodes, searchQuery, resourceFilters, showTerminated),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [namespaces, k8sNodes, searchQuery, resourceFilters, theme]
+    [namespaces, k8sNodes, searchQuery, resourceFilters, showTerminated, theme]
   );
 
   useEffect(() => {
@@ -547,10 +560,21 @@ export default function ClusterGraph({ namespaces, nodes: k8sNodes, searchQuery,
     setInteractiveEdges(graphData.edges);
   }, [graphData, focusKey]);
 
-  const selectedNode = useMemo(() => {
+  // Keep showing the last known data if the selected resource disappears
+  // (e.g. a pod is deleted or its retention expires while it's open).
+  const lastSelected = useRef<{ id: string; data: ResourceNodeData } | null>(null);
+  const selected = useMemo(() => {
     if (!selectedNodeId) return null;
     const n = interactiveNodes.find(node => node.id === selectedNodeId);
-    return n ? (n.data as unknown as ResourceNodeData) : null;
+    if (n) {
+      const data = n.data as unknown as ResourceNodeData;
+      lastSelected.current = { id: n.id, data };
+      return { data, gone: false };
+    }
+    if (lastSelected.current?.id === selectedNodeId) {
+      return { data: lastSelected.current.data, gone: true };
+    }
+    return null;
   }, [selectedNodeId, interactiveNodes]);
 
   useEffect(() => {
@@ -599,8 +623,13 @@ export default function ClusterGraph({ namespaces, nodes: k8sNodes, searchQuery,
         <Background color="var(--canvas-dot)" gap={20} />
         <Controls showInteractive={false} />
       </ReactFlow>
-      {selectedNode && (
-        <ResourceDetail data={selectedNode} onClose={() => setSelectedNodeId(null)} />
+      {selected && (
+        <ResourceDetail
+          key={selectedNodeId}
+          data={selected.data}
+          gone={selected.gone}
+          onClose={() => setSelectedNodeId(null)}
+        />
       )}
     </div>
   );

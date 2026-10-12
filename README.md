@@ -16,6 +16,8 @@ Real-time topology graph for a Kubernetes cluster: resources, ownership/routing 
 - Live updates via informers + WebSocket (not polling)
 - Resource type filters, search, detail panel (status, containers, conditions, usage)
 - Optional metrics via Metrics Server (`kubectl top` API): pod/node CPU (cores) and memory (GB)
+- Pod logs in the detail panel: time windows (last 30s / 1m / 5m / 15m / 1h / all), "load earlier", live follow, previous-container logs, filter, download
+- Deleted pods are kept for a while (default 1m) as faded "ghost" nodes with their final status, container exit reasons, events and the logs captured while they were terminating
 
 ## Prerequisites
 
@@ -60,6 +62,17 @@ Default: `METRICS_PROVIDER=metrics-server`. Topology works without it.
 | `METRICS_TIMEOUT` | `10s` | per scrape |
 
 See [docs/metrics.md](./docs/metrics.md).
+
+## Deleted pod retention
+
+When a pod starts terminating, the backend follows its container logs; when it is deleted, a snapshot (status, exit codes/reasons, captured logs) is kept in memory so you can see why it went away.
+
+| Env | Default | Notes |
+|-----|---------|--------|
+| `POD_RETENTION` | `1m` | how long deleted pods stay visible; `0` disables |
+| `POD_RETENTION_MAX` | `100` | max deleted pods kept (oldest dropped first) |
+
+Logs can't be captured for pods removed without a terminating phase (e.g. `--force --grace-period=0`). Logs need `get` on `pods/log` (included in `yamls/all-in-one.yaml`).
 
 ## In-cluster
 
