@@ -45,7 +45,6 @@ function capLines(lines: LogLine[]): LogLine[] {
 export default function PodLogs({ namespace, pod, uid, containers, retained, gone }: PodLogsProps) {
   const [container, setContainer] = useState(containers[0]?.name ?? '');
   const [windowSec, setWindowSec] = useState(30);
-  const [previous, setPrevious] = useState(false);
   const [live, setLive] = useState(false);
   const [filter, setFilter] = useState('');
   const [lines, setLines] = useState<LogLine[]>([]);
@@ -59,12 +58,6 @@ export default function PodLogs({ namespace, pod, uid, containers, retained, gon
 
   const isRetained = !!retained;
   const frozen = gone || isRetained;
-  const selected = containers.find(c => c.name === container);
-  const canPrevious = !frozen && (selected?.restart_count ?? 0) > 0;
-
-  useEffect(() => {
-    if (!canPrevious) setPrevious(false);
-  }, [canPrevious]);
   useEffect(() => {
     if (frozen) setLive(false);
   }, [frozen]);
@@ -75,10 +68,9 @@ export default function PodLogs({ namespace, pod, uid, containers, retained, gon
     if (!isRetained) {
       if (windowSec > 0) p.set('since', String(windowSec));
       else p.set('tail', String(ALL_TAIL_LINES));
-      if (previous) p.set('previous', '1');
     }
     return p.toString();
-  }, [namespace, pod, uid, container, windowSec, previous, isRetained]);
+  }, [namespace, pod, uid, container, windowSec, isRetained]);
 
   // One-shot fetch (also used for retained pods).
   useEffect(() => {
@@ -215,14 +207,8 @@ export default function PodLogs({ namespace, pod, uid, containers, retained, gon
             ))}
           </div>
         )}
-        {canPrevious && (
-          <label className="pod-logs__check" title="Logs of the previous (crashed/restarted) container">
-            <input type="checkbox" checked={previous} onChange={e => setPrevious(e.target.checked)} />
-            previous
-          </label>
-        )}
         <div className="pod-logs__spacer" />
-        {!frozen && !previous && (
+        {!frozen && (
           <button
             className={`pod-logs__icon-btn${live ? ' pod-logs__icon-btn--on' : ''}`}
             onClick={() => setLive(v => !v)}

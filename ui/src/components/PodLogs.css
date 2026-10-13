@@ -68,15 +68,6 @@
   font-weight: 600;
 }
 
-.pod-logs__check {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 0.7rem;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
 .pod-logs__spacer {
   flex: 1;
 }
