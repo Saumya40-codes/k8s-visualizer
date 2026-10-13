@@ -91,13 +91,22 @@ func StartServer(ctx context.Context) {
 		AllowedOrigins: []string{"http://localhost:5173", "http://localhost:8081"},
 		AllowedMethods: []string{"GET", "POST", "OPTIONS"},
 	}).Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/ws" {
+		switch r.URL.Path {
+		case "/ws":
 			wsHandler := websocket.Server{
 				Handler: func(ws *websocket.Conn) {
 					server.handleConn(ws)
 				},
 			}
 			wsHandler.ServeHTTP(w, r)
+		case "/api/logs":
+			server.handleLogs(w, r)
+		case "/api/logs/stream":
+			server.handleLogStream(w, r)
+		case "/api/snapshot":
+			server.handleSnapshot(w, r)
+		default:
+			http.NotFound(w, r)
 		}
 	}))
 
