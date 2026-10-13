@@ -103,6 +103,8 @@ func StartServer(ctx context.Context) {
 			server.handleLogs(w, r)
 		case "/api/logs/stream":
 			server.handleLogStream(w, r)
+		case "/api/snapshot":
+			server.handleSnapshot(w, r)
 		default:
 			http.NotFound(w, r)
 		}

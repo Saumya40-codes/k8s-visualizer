@@ -225,4 +225,20 @@ export interface ClusterState {
     nodes: K8sNode[];
     metrics?: MetricsStatus;
     retention?: { ttl_seconds: number };
+    history?: HistoryInfo;
+}
+
+export interface TimelineMarker {
+    t: number;
+    type: 'created' | 'deleted' | 'error';
+    ns?: string;
+    kind: string;
+    name: string;
+    status?: string;
+}
+
+export interface HistoryInfo {
+    window_seconds: number;
+    oldest_ms: number;
+    markers: TimelineMarker[];
 }

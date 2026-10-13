@@ -54,6 +54,10 @@ type InformerManager struct {
 
 	usage     UsageSource
 	retention *RetentionStore
+	history   *History
+
+	// Serializes builds so history records states in order.
+	buildMu sync.Mutex
 }
 
 func (im *InformerManager) SetUsageSource(u UsageSource) {
@@ -157,8 +161,18 @@ func (im *InformerManager) debounceBuildState() {
 	})
 }
 
+func (im *InformerManager) SetHistory(h *History) {
+	im.history = h
+}
+
 func (im *InformerManager) buildAndPushState() {
+	im.buildMu.Lock()
 	state := im.buildClusterState()
+	if im.history.Enabled() {
+		im.history.Record(&state)
+		state.History = im.history.Info()
+	}
+	im.buildMu.Unlock()
 
 	im.cacheMu.Lock()
 	im.lastState = &state
@@ -181,6 +195,7 @@ func (im *InformerManager) buildClusterState() ClusterState {
 	for _, ns := range namespaces {
 		nsList = append(nsList, Namespace{
 			Name:         ns.Name,
+			rv:           ns.ResourceVersion,
 			CreatedAt:    ns.CreationTimestamp.Format(time.RFC3339),
 			UniqueID:     string(ns.UID),
 			Pods:         im.buildPods(ns.Name),
@@ -235,6 +250,7 @@ func (im *InformerManager) buildPods(ns string) []Pod {
 
 func (im *InformerManager) buildPod(p *corev1.Pod) Pod {
 	pod := Pod{
+		rv:        p.ResourceVersion,
 		Name:      p.Name,
 		Status:    string(p.Status.Phase),
 		CreatedAt: p.CreationTimestamp.Format(time.RFC3339),
@@ -402,6 +418,7 @@ func (im *InformerManager) buildDeployments(ns string) []Deployment {
 		}
 
 		result = append(result, Deployment{
+			rv:            d.ResourceVersion,
 			Name:          d.Name,
 			Status:        status,
 			Replicas:      d.Status.Replicas,
@@ -434,6 +451,7 @@ func (im *InformerManager) buildReplicaSets(ns string) []ReplicaSet {
 		}
 
 		result = append(result, ReplicaSet{
+			rv:              rs.ResourceVersion,
 			Name:            rs.Name,
 			Replicas:        rs.Status.Replicas,
 			ReadyReplicas:   rs.Status.ReadyReplicas,
@@ -456,6 +474,7 @@ func (im *InformerManager) buildServices(ns string) []Service {
 	var result []Service
 	for _, s := range services {
 		svc := Service{
+			rv:        s.ResourceVersion,
 			Name:      s.Name,
 			Type:      string(s.Spec.Type),
 			CreatedAt: s.CreationTimestamp.Format(time.RFC3339),
@@ -485,6 +504,7 @@ func (im *InformerManager) buildSecrets(ns string) []Secret {
 	var result []Secret
 	for _, s := range secrets {
 		result = append(result, Secret{
+			rv:        s.ResourceVersion,
 			Name:      s.Name,
 			Type:      string(s.Type),
 			CreatedAt: s.CreationTimestamp.Format(time.RFC3339),
@@ -505,6 +525,7 @@ func (im *InformerManager) buildConfigMaps(ns string) []ConfigMap {
 	var result []ConfigMap
 	for _, cm := range cms {
 		result = append(result, ConfigMap{
+			rv:        cm.ResourceVersion,
 			Name:      cm.Name,
 			CreatedAt: cm.CreationTimestamp.Format(time.RFC3339),
 			UniqueID:  string(cm.UID),
@@ -524,6 +545,7 @@ func (im *InformerManager) buildIngresses(ns string) []Ingress {
 	var result []Ingress
 	for _, ing := range ingresses {
 		ingress := Ingress{
+			rv:        ing.ResourceVersion,
 			Name:      ing.Name,
 			CreatedAt: ing.CreationTimestamp.Format(time.RFC3339),
 			UniqueID:  string(ing.UID),
@@ -565,6 +587,7 @@ func (im *InformerManager) buildStatefulSets(ns string) []StatefulSet {
 			selector = sts.Spec.Selector.MatchLabels
 		}
 		result = append(result, StatefulSet{
+			rv:            sts.ResourceVersion,
 			Name:          sts.Name,
 			Replicas:      sts.Status.Replicas,
 			ReadyReplicas: sts.Status.ReadyReplicas,
@@ -591,6 +614,7 @@ func (im *InformerManager) buildDaemonSets(ns string) []DaemonSet {
 			selector = ds.Spec.Selector.MatchLabels
 		}
 		result = append(result, DaemonSet{
+			rv:            ds.ResourceVersion,
 			Name:          ds.Name,
 			DesiredNumber: ds.Status.DesiredNumberScheduled,
 			CurrentNumber: ds.Status.CurrentNumberScheduled,
@@ -623,6 +647,7 @@ func (im *InformerManager) buildJobs(ns string) []Job {
 		}
 
 		result = append(result, Job{
+			rv:          j.ResourceVersion,
 			Name:        j.Name,
 			Status:      status,
 			CreatedAt:   j.CreationTimestamp.Format(time.RFC3339),
@@ -704,6 +729,7 @@ func (im *InformerManager) buildNodes() []Node {
 		}
 
 		node := Node{
+			rv:       n.ResourceVersion,
 			Name:     n.Name,
 			Status:   status,
 			UniqueID: string(n.UID),

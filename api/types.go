@@ -60,6 +60,9 @@ type MetricsStatus struct {
 }
 
 type Pod struct {
+	// rv is the k8s resourceVersion; history uses it to skip unchanged objects.
+	rv string
+
 	Name              string            `json:"name"`
 	Status            string            `json:"status"`
 	EffectiveStatus   string            `json:"effective_status"`
@@ -80,6 +83,9 @@ type Pod struct {
 }
 
 type Deployment struct {
+	// rv is the k8s resourceVersion; history uses it to skip unchanged objects.
+	rv string
+
 	Name          string            `json:"name"`
 	Status        string            `json:"status"`
 	Replicas      int32             `json:"replicas"`
@@ -91,6 +97,9 @@ type Deployment struct {
 }
 
 type ReplicaSet struct {
+	// rv is the k8s resourceVersion; history uses it to skip unchanged objects.
+	rv string
+
 	Name            string            `json:"name"`
 	Replicas        int32             `json:"replicas"`
 	ReadyReplicas   int32             `json:"ready_replicas"`
@@ -101,6 +110,9 @@ type ReplicaSet struct {
 }
 
 type Service struct {
+	// rv is the k8s resourceVersion; history uses it to skip unchanged objects.
+	rv string
+
 	Name      string            `json:"name"`
 	Type      string            `json:"type"`
 	CreatedAt string            `json:"created_at"`
@@ -117,6 +129,9 @@ type ServicePort struct {
 }
 
 type Secret struct {
+	// rv is the k8s resourceVersion; history uses it to skip unchanged objects.
+	rv string
+
 	Name      string `json:"name"`
 	Type      string `json:"type"`
 	CreatedAt string `json:"created_at"`
@@ -125,6 +140,9 @@ type Secret struct {
 }
 
 type ConfigMap struct {
+	// rv is the k8s resourceVersion; history uses it to skip unchanged objects.
+	rv string
+
 	Name      string `json:"name"`
 	CreatedAt string `json:"created_at"`
 	UniqueID  string `json:"unique_id"`
@@ -132,6 +150,9 @@ type ConfigMap struct {
 }
 
 type Ingress struct {
+	// rv is the k8s resourceVersion; history uses it to skip unchanged objects.
+	rv string
+
 	Name      string        `json:"name"`
 	CreatedAt string        `json:"created_at"`
 	UniqueID  string        `json:"unique_id"`
@@ -150,6 +171,9 @@ type IngressRulePath struct {
 }
 
 type StatefulSet struct {
+	// rv is the k8s resourceVersion; history uses it to skip unchanged objects.
+	rv string
+
 	Name          string            `json:"name"`
 	Replicas      int32             `json:"replicas"`
 	ReadyReplicas int32             `json:"ready_replicas"`
@@ -160,6 +184,9 @@ type StatefulSet struct {
 }
 
 type DaemonSet struct {
+	// rv is the k8s resourceVersion; history uses it to skip unchanged objects.
+	rv string
+
 	Name          string            `json:"name"`
 	DesiredNumber int32             `json:"desired_number"`
 	CurrentNumber int32             `json:"current_number"`
@@ -171,6 +198,9 @@ type DaemonSet struct {
 }
 
 type Job struct {
+	// rv is the k8s resourceVersion; history uses it to skip unchanged objects.
+	rv string
+
 	Name        string `json:"name"`
 	Status      string `json:"status"`
 	CreatedAt   string `json:"created_at"`
@@ -191,6 +221,9 @@ type Event struct {
 }
 
 type Node struct {
+	// rv is the k8s resourceVersion; history uses it to skip unchanged objects.
+	rv string
+
 	Name        string            `json:"name"`
 	Status      string            `json:"status"`
 	UniqueID    string            `json:"unique_id"`
@@ -212,6 +245,9 @@ type ResourceList struct {
 }
 
 type Namespace struct {
+	// rv is the k8s resourceVersion; history uses it to skip unchanged objects.
+	rv string
+
 	Name         string        `json:"name"`
 	CreatedAt    string        `json:"created_at"`
 	UniqueID     string        `json:"unique_id"`
@@ -233,6 +269,7 @@ type ClusterState struct {
 	Nodes      []Node         `json:"nodes"`
 	Metrics    *MetricsStatus `json:"metrics,omitempty"`
 	Retention  RetentionInfo  `json:"retention"`
+	History    *HistoryInfo   `json:"history,omitempty"`
 }
 
 type RetentionInfo struct {

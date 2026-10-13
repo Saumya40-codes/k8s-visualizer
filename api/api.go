@@ -78,6 +78,10 @@ func StartMonitoring() {
 	informerMgr.SetRetention(NewRetentionStore(retentionCfg, clientset))
 	log.Printf("terminated pod retention=%s max=%d", retentionCfg.TTL, retentionCfg.MaxPods)
 
+	historyCfg := LoadHistoryConfig()
+	informerMgr.SetHistory(NewHistory(historyCfg))
+	log.Printf("history window=%s max=%dMB", historyCfg.Window, historyCfg.MaxBytes>>20)
+
 	metricsCfg := metrics.LoadConfig()
 	metricsMgr, err := metrics.NewManager(metricsCfg, restConfig)
 	if err != nil {

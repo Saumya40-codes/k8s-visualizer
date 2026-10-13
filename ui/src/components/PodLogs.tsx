@@ -17,6 +17,8 @@ interface PodLogsProps {
   retained?: RetainedInfo;
   /** Resource no longer exists at all: keep what's loaded, stop fetching. */
   gone: boolean;
+  /** Unix ms when viewing history: show the window leading up to it. */
+  viewAt?: number | null;
 }
 
 const WINDOWS: { label: string; seconds: number }[] = [
@@ -42,7 +44,7 @@ function capLines(lines: LogLine[]): LogLine[] {
   return lines.length > MAX_CLIENT_LINES ? lines.slice(lines.length - MAX_CLIENT_LINES) : lines;
 }
 
-export default function PodLogs({ namespace, pod, uid, containers, retained, gone }: PodLogsProps) {
+export default function PodLogs({ namespace, pod, uid, containers, retained, gone, viewAt = null }: PodLogsProps) {
   const [container, setContainer] = useState(containers[0]?.name ?? '');
   const [windowSec, setWindowSec] = useState(30);
   const [live, setLive] = useState(false);
@@ -58,6 +60,7 @@ export default function PodLogs({ namespace, pod, uid, containers, retained, gon
 
   const isRetained = !!retained;
   const frozen = gone || isRetained;
+  const past = viewAt !== null;
   useEffect(() => {
     if (frozen) setLive(false);
   }, [frozen]);
@@ -66,11 +69,14 @@ export default function PodLogs({ namespace, pod, uid, containers, retained, gon
     const p = new URLSearchParams({ namespace, pod, uid, ...extra });
     if (container) p.set('container', container);
     if (!isRetained) {
-      if (windowSec > 0) p.set('since', String(windowSec));
+      // k8s can only fetch "since N seconds ago", so reach back to the window
+      // before viewAt and trim the tail client-side.
+      const back = past ? Math.ceil((Date.now() - viewAt!) / 1000) : 0;
+      if (windowSec > 0) p.set('since', String(back + windowSec));
       else p.set('tail', String(ALL_TAIL_LINES));
     }
     return p.toString();
-  }, [namespace, pod, uid, container, windowSec, isRetained]);
+  }, [namespace, pod, uid, container, windowSec, isRetained, past, viewAt]);
 
   // One-shot fetch (also used for retained pods).
   useEffect(() => {
@@ -138,10 +144,20 @@ export default function PodLogs({ namespace, pod, uid, containers, retained, gon
     };
   }, [live, query]);
 
+  const inTime = useMemo(() => {
+    if (!past) return lines;
+    const from = windowSec > 0 ? viewAt! - windowSec * 1000 : -Infinity;
+    return lines.filter(l => {
+      if (!l.ts) return true;
+      const t = Date.parse(l.ts);
+      return t <= viewAt! && t >= from;
+    });
+  }, [lines, past, viewAt, windowSec]);
+
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
-    return q ? lines.filter(l => l.text.toLowerCase().includes(q)) : lines;
-  }, [lines, filter]);
+    return q ? inTime.filter(l => l.text.toLowerCase().includes(q)) : inTime;
+  }, [inTime, filter]);
 
   useLayoutEffect(() => {
     const el = scrollRef.current;
@@ -178,6 +194,11 @@ export default function PodLogs({ namespace, pod, uid, containers, retained, gon
             : 'Pod is deleted. Its logs were not captured (it was removed without a terminating phase, e.g. force-deleted).'}
         </div>
       )}
+      {past && !isRetained && (
+        <div className="pod-logs__note">
+          Showing logs up to {new Date(viewAt!).toLocaleTimeString([], { hour12: false })}.
+        </div>
+      )}
       {gone && !isRetained && (
         <div className="pod-logs__note">Pod no longer exists. Showing the last loaded logs.</div>
       )}
@@ -208,7 +229,7 @@ export default function PodLogs({ namespace, pod, uid, containers, retained, gon
           </div>
         )}
         <div className="pod-logs__spacer" />
-        {!frozen && (
+        {!frozen && !past && (
           <button
             className={`pod-logs__icon-btn${live ? ' pod-logs__icon-btn--on' : ''}`}
             onClick={() => setLive(v => !v)}
@@ -249,7 +270,7 @@ export default function PodLogs({ namespace, pod, uid, containers, retained, gon
 
       <div className="pod-logs__meta">
         {live && <span className="pod-logs__live-dot" />}
-        {filter ? `${filtered.length} / ${lines.length} lines` : `${lines.length} lines`}
+        {filter ? `${filtered.length} / ${inTime.length} lines` : `${inTime.length} lines`}
         {truncated && ' (truncated)'}
         {live && ' · following'}
       </div>
@@ -265,7 +286,7 @@ export default function PodLogs({ namespace, pod, uid, containers, retained, gon
         {filtered.length === 0 && !loading && !error ? (
           <div className="pod-logs__empty">
             {live ? 'Waiting for output...' : windowSec > 0 && !frozen
-              ? `No logs in the last ${WINDOWS[windowIdx]?.label ?? `${windowSec}s`}.`
+              ? `No logs in the ${past ? '' : 'last '}${WINDOWS[windowIdx]?.label ?? `${windowSec}s`}${past ? ' before this time' : ''}.`
               : 'No logs.'}
           </div>
         ) : (

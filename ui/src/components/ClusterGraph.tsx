@@ -28,6 +28,8 @@ interface ClusterGraphProps {
   theme?: Theme;
   /** Show deleted pods kept for the retention window. */
   showTerminated?: boolean;
+  /** Unix ms when viewing history, null when live. */
+  viewAt?: number | null;
 }
 
 function readCssVar(name: string, fallback: string): string {
@@ -525,6 +527,7 @@ function buildGraph(
 
 export default function ClusterGraph({
   namespaces, nodes: k8sNodes, searchQuery, resourceFilters, focusKey, theme = 'light', showTerminated = true,
+  viewAt = null,
 }: ClusterGraphProps) {
   // Selection by id so detail follows live metrics
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -628,6 +631,7 @@ export default function ClusterGraph({
           key={selectedNodeId}
           data={selected.data}
           gone={selected.gone}
+          viewAt={viewAt}
           onClose={() => setSelectedNodeId(null)}
         />
       )}

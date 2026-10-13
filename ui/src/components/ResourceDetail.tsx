@@ -11,6 +11,8 @@ interface ResourceDetailProps {
   data: ResourceNodeData;
   /** Resource no longer exists; showing the last known snapshot. */
   gone?: boolean;
+  /** Unix ms when viewing history. */
+  viewAt?: number | null;
   onClose: () => void;
 }
 
@@ -262,7 +264,7 @@ function EventsList({ events }: { events: K8sEvent[] }) {
   );
 }
 
-export default function ResourceDetail({ data, gone = false, onClose }: ResourceDetailProps) {
+export default function ResourceDetail({ data, gone = false, viewAt = null, onClose }: ResourceDetailProps) {
   const [width, setWidth] = useState(400);
   const [tab, setTab] = useState<Tab>('overview');
   const isPod = data.resourceType === 'pod' && typeof data.pod_uid === 'string';
@@ -334,7 +336,9 @@ export default function ResourceDetail({ data, gone = false, onClose }: Resource
         )}
         {gone && (
           <div className="detail-panel__gone">
-            This resource no longer exists in the cluster. Showing its last known state.
+            {viewAt !== null
+              ? 'This resource did not exist at the selected time. Showing its last known state.'
+              : 'This resource no longer exists in the cluster. Showing its last known state.'}
           </div>
         )}
         {isPod && (
@@ -365,6 +369,7 @@ export default function ResourceDetail({ data, gone = false, onClose }: Resource
             containers={(data.containers as ContainerStatus[] | undefined) || []}
             retained={data.retained as RetainedInfo | undefined}
             gone={gone}
+            viewAt={viewAt}
           />
         )}
         {isPod && tab === 'events' && <EventsList events={(data.events as K8sEvent[] | undefined) || []} />}
