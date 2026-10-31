@@ -83,7 +83,3 @@ Kubernetes API
 ```
 
 State is rebuilt on informer events (debounced) and pushed to all WS clients. Metrics enrich pod/node usage when available.
-
-## License
-
-See repository license file if present.
