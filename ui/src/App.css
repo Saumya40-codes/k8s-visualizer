@@ -383,6 +383,17 @@ body {
   opacity: 1;
 }
 
+.filter-bar__divider {
+  width: 1px;
+  height: 16px;
+  background: var(--border-strong);
+  margin: 0 4px;
+}
+
+.graph-area--past {
+  box-shadow: inset 0 0 0 2px var(--accent-border);
+}
+
 .graph-area {
   flex: 1;
   position: relative;
@@ -423,6 +434,14 @@ body {
   max-width: 180px;
   font-size: 0.75rem;
   box-shadow: var(--shadow);
+}
+.resource-node--ghost {
+  border-style: dashed;
+  opacity: 0.6;
+  box-shadow: none;
+}
+.resource-node--ghost:hover {
+  opacity: 1;
 }
 .resource-node__header {
   display: flex;

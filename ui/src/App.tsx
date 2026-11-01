@@ -1,13 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import socket from './lib/socket';
 import { ClusterState, Namespace } from './lib/types/namespaces';
 import {
   Search, Server, Database, Network, Lock, FileText,
   Globe, LayoutGrid, Repeat, Briefcase, Monitor, Copy, Loader,
-  ChevronLeft, ChevronRight, Sun, Moon,
+  ChevronLeft, ChevronRight, Sun, Moon, History,
   type LucideIcon,
 } from 'lucide-react';
 import ClusterGraph from './components/ClusterGraph';
+import TimeBar from './components/TimeBar';
+import { API_BASE } from './lib/api';
 import './App.css';
 
 export type Theme = 'light' | 'dark';
@@ -87,6 +89,45 @@ function App() {
   const [activeNamespace, setActiveNamespace] = useState<string | null>(null);
   const [resourceFilters, setResourceFilters] = useState<ResourceTypeFilter>({ ...defaultFilters });
   const [theme, setTheme] = useState<Theme>(() => readStoredTheme());
+  const [showTerminated, setShowTerminated] = useState(true);
+  // Time travel: null = live, otherwise unix ms being viewed.
+  const [viewAt, setViewAt] = useState<number | null>(null);
+  const [snapshot, setSnapshot] = useState<ClusterState | null>(null);
+  const [snapshotLoading, setSnapshotLoading] = useState(false);
+
+  const changeViewAt = useCallback((at: number | null) => setViewAt(at), []);
+
+  useEffect(() => {
+    if (viewAt === null) {
+      setSnapshot(null);
+      setSnapshotLoading(false);
+      return;
+    }
+    // Debounce while scrubbing; abort superseded requests.
+    const ctrl = new AbortController();
+    setSnapshotLoading(true);
+    const t = setTimeout(() => {
+      fetch(`${API_BASE}/api/snapshot?at=${Math.round(viewAt)}`, { signal: ctrl.signal })
+        .then(res => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+        .then((st: ClusterState) => {
+          setSnapshot(st);
+          setSnapshotLoading(false);
+        })
+        .catch(err => {
+          if (err.name !== 'AbortError') {
+            console.error('snapshot fetch failed', err);
+            setSnapshotLoading(false);
+          }
+        });
+    }, 120);
+    return () => {
+      clearTimeout(t);
+      ctrl.abort();
+    };
+  }, [viewAt]);
+
+  // While scrubbing, keep showing the previous frame until the next arrives.
+  const displayState = viewAt !== null && snapshot ? snapshot : clusterState;
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -162,9 +203,15 @@ function App() {
   };
 
   const focusedNamespaces = useMemo(() => {
-    if (!clusterState || !activeNamespace) return [];
-    return clusterState.namespaces.filter(ns => ns.name === activeNamespace);
-  }, [clusterState, activeNamespace]);
+    if (!displayState || !activeNamespace) return [];
+    return (displayState.namespaces || []).filter(ns => ns.name === activeNamespace);
+  }, [displayState, activeNamespace]);
+
+  const retainedCount = useMemo(
+    () => focusedNamespaces.reduce((n, ns) => n + (ns.pods || []).filter(p => p.retained).length, 0),
+    [focusedNamespaces]
+  );
+  const retentionSec = clusterState?.retention?.ttl_seconds ?? 0;
 
   return (
     <div className="app-container">
@@ -280,20 +327,44 @@ function App() {
                 </button>
               );
             })}
+            {retentionSec > 0 && (
+              <>
+                <div className="filter-bar__divider" />
+                <button
+                  className={`filter-chip ${showTerminated ? 'filter-chip--on' : 'filter-chip--off'}`}
+                  onClick={() => setShowTerminated(v => !v)}
+                  title={`Deleted pods are kept for ${retentionSec}s (POD_RETENTION) so you can see why they went away`}
+                >
+                  <History size={12} />
+                  <span>Deleted pods{retainedCount > 0 ? ` (${retainedCount})` : ''}</span>
+                </button>
+              </>
+            )}
           </div>
-          <div className="graph-area">
+          <div className={`graph-area${viewAt !== null ? ' graph-area--past' : ''}`}>
+            {clusterState?.history && (
+              <TimeBar
+                history={clusterState.history}
+                namespace={activeNamespace}
+                viewAt={viewAt}
+                onChange={changeViewAt}
+                loading={snapshotLoading}
+              />
+            )}
             {focusedNamespaces.length === 0 ? (
               <div className="empty-ns">
-                <span>No namespace selected</span>
+                <span>{viewAt !== null ? 'Namespace did not exist at this time' : 'No namespace selected'}</span>
               </div>
             ) : (
               <ClusterGraph
                 namespaces={focusedNamespaces}
-                nodes={clusterState?.nodes || []}
+                nodes={displayState?.nodes || []}
                 searchQuery={searchQuery}
                 resourceFilters={resourceFilters}
                 focusKey={activeNamespace || ''}
                 theme={theme}
+                showTerminated={showTerminated}
+                viewAt={viewAt}
               />
             )}
           </div>

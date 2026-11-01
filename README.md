@@ -16,6 +16,9 @@ Real-time topology graph for a Kubernetes cluster: resources, ownership/routing 
 - Live updates via informers + WebSocket (not polling)
 - Resource type filters, search, detail panel (status, containers, conditions, usage)
 - Optional metrics via Metrics Server (`kubectl top` API): pod/node CPU (cores) and memory (GB)
+- Pod logs in the detail panel: time windows (last 30s / 1m / 5m / 15m / 1h / all), "load earlier", live follow, previous-container logs, filter, download
+- Time travel: a timeline at the top-left lets you scrub back (default 5m) and see the namespace as it was, with markers for pod errors, creations and deletions; logs follow the selected time
+- Deleted pods are kept for a while (default 1m) as faded "ghost" nodes with their final status, container exit reasons, events and the logs captured while they were terminating
 
 ## Prerequisites
 
@@ -60,6 +63,34 @@ Default: `METRICS_PROVIDER=metrics-server`. Topology works without it.
 | `METRICS_TIMEOUT` | `10s` | per scrape |
 
 See [docs/metrics.md](./docs/metrics.md).
+
+## History (time travel)
+
+The backend records how every object changes and can rebuild the cluster state at any moment in the window.
+
+| Env | Default | Notes |
+|-----|---------|--------|
+| `HISTORY_WINDOW` | `5m` | how far back you can scrub; `0` disables |
+| `HISTORY_MAX_MB` | `64` | memory budget; when exceeded the oldest history is dropped first |
+
+Built for large, busy clusters:
+- Each object is stored as a list of versions with validity intervals, so memory grows with the rate of change, not with object count x time.
+- Objects whose `resourceVersion` didn't change are skipped without encoding; changes that don't affect what the UI shows (e.g. heartbeats) are deduplicated by hash.
+- CPU/memory usage and events aren't versioned (they'd dominate churn); snapshots show events by first-seen time.
+- Snapshots are assembled from stored JSON without decoding, gzipped, and cached per second.
+
+History lives in memory and starts when the backend starts.
+
+## Deleted pod retention
+
+When a pod starts terminating, the backend follows its container logs; when it is deleted, a snapshot (status, exit codes/reasons, captured logs) is kept in memory so you can see why it went away.
+
+| Env | Default | Notes |
+|-----|---------|--------|
+| `POD_RETENTION` | `1m` | how long deleted pods stay visible; `0` disables |
+| `POD_RETENTION_MAX` | `100` | max deleted pods kept (oldest dropped first) |
+
+Logs can't be captured for pods removed without a terminating phase (e.g. `--force --grace-period=0`). Logs need `get` on `pods/log` (included in `yamls/all-in-one.yaml`).
 
 ## In-cluster
 

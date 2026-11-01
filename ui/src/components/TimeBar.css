@@ -1,0 +1,144 @@
+.time-bar {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(620px, calc(100% - 24px));
+  padding: 6px 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  font-size: 0.7rem;
+  box-sizing: border-box;
+}
+.time-bar--past {
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.time-bar__live {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: inherit;
+  font-size: 0.7rem;
+  font-weight: 600;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.time-bar__live:hover {
+  color: var(--accent);
+  border-color: var(--accent-border);
+}
+.time-bar__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+.time-bar__live--on {
+  color: var(--ok);
+  border-color: var(--ok);
+  background: var(--ok-soft);
+}
+.time-bar__live--on .time-bar__dot {
+  background: var(--ok);
+  animation: time-bar-pulse 1.4s ease-in-out infinite;
+}
+@keyframes time-bar-pulse {
+  50% { opacity: 0.35; }
+}
+
+.time-bar__jumps {
+  display: inline-flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.time-bar__jump {
+  font-family: inherit;
+  font-size: 0.65rem;
+  height: 22px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.time-bar__jump:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.time-bar__track {
+  position: relative;
+  flex: 1;
+  min-width: 80px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+}
+.time-bar__range {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  margin: 0;
+  accent-color: var(--accent);
+  background: transparent;
+  cursor: pointer;
+}
+.time-bar__marker {
+  position: absolute;
+  top: 1px;
+  width: 4px;
+  height: 7px;
+  margin-left: -2px;
+  padding: 0;
+  border: none;
+  border-radius: 2px;
+  cursor: pointer;
+  z-index: 2;
+}
+.time-bar__marker:hover {
+  transform: scaleY(1.5);
+}
+.time-bar__marker--error { background: var(--err); }
+.time-bar__marker--deleted { background: var(--text-muted); }
+.time-bar__marker--created { background: var(--ok); }
+
+.time-bar__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.time-bar__label span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.time-bar--past .time-bar__label {
+  color: var(--accent);
+  font-weight: 600;
+}
+.time-bar__spin {
+  animation: spin 1s linear infinite;
+}
+
+@media (max-width: 640px) {
+  .time-bar__jumps { display: none; }
+}

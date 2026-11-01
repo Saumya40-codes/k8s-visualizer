@@ -23,6 +23,10 @@ rules:
       - "nodes"
       - "events"
     verbs: ["get", "list", "watch"]
+  # Pod logs (live view + capture of terminating pods)
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
   - apiGroups: ["apps"]
     resources: 
       - "deployments"

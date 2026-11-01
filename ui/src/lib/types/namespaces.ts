@@ -4,8 +4,26 @@ export interface ContainerStatus {
     restart_count: number;
     state: string;
     reason?: string;
+    message?: string;
     exit_code?: number;
+    finished_at?: string;
+    last_state?: TerminationState;
     image: string;
+}
+
+export interface TerminationState {
+    reason?: string;
+    message?: string;
+    exit_code: number;
+    finished_at?: string;
+}
+
+/** Present on pods that were deleted but are kept for the retention window. */
+export interface RetainedInfo {
+    deleted_at: string;
+    expires_at: string;
+    last_status: string;
+    logs_captured: boolean;
 }
 
 export interface PodCondition {
@@ -41,6 +59,8 @@ export interface Pod {
     unique_id: string;
     node_name: string;
     ip: string;
+    reason?: string;
+    message?: string;
     labels?: Record<string, string>;
     container_statuses?: ContainerStatus[];
     conditions?: PodCondition[];
@@ -48,6 +68,7 @@ export interface Pod {
     requests?: ResourceList;
     limits?: ResourceList;
     usage?: ResourceUsage;
+    retained?: RetainedInfo;
 }
 
 export interface Deployment {
@@ -203,4 +224,21 @@ export interface ClusterState {
     namespaces: Namespace[];
     nodes: K8sNode[];
     metrics?: MetricsStatus;
+    retention?: { ttl_seconds: number };
+    history?: HistoryInfo;
+}
+
+export interface TimelineMarker {
+    t: number;
+    type: 'created' | 'deleted' | 'error';
+    ns?: string;
+    kind: string;
+    name: string;
+    status?: string;
+}
+
+export interface HistoryInfo {
+    window_seconds: number;
+    oldest_ms: number;
+    markers: TimelineMarker[];
 }
